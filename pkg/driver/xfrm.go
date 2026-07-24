@@ -160,9 +160,8 @@ func (x *XFRMManager) AddSA(cfg XFRMSAConfig) error {
 		Spi:          int(cfg.SPI),
 		ReplayWindow: replayWindow,
 		Ifid:         cfg.Ifid,
-		// 参考 strongswan kernel_netlink_ipsec.c:1857
-		// tunnel mode SA 需要设置 XFRM_STATE_AF_UNSPEC，允许处理任意地址族的流量
-		AFUnspec: cfg.Mode == netlink.XFRM_MODE_TUNNEL,
+		// AFUnspec 字段在 iniwex5/netlink fork 中不存在，已移除
+		// (原 strongswan: tunnel mode SA 需要设置 XFRM_STATE_AF_UNSPEC)
 		ESN:      cfg.ESN,
 		SADir:    cfg.SADir,
 		Limits: netlink.XfrmStateLimits{
