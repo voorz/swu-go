@@ -385,15 +385,12 @@ func (s *Session) connectOnce() error {
 			s.ws.LogIKESAKeys(s.SPIi, s.SPIr, s.Keys.SK_ei, s.Keys.SK_er, s.Keys.SK_ai, s.Keys.SK_ar, s.ikeEncrID, s.ikeIntegID)
 		}
 
-		// 3. IKE_AUTH
-		// 警告: IKE_AUTH 通常发送 EAP 请求？或者 EAP 在 IKE_AUTH 响应内部开始？
-		// RFC 7296 1.2:
-		// Init -> SA, KE, Ni, N(NAT_DETECTION_*)
-		// Resp -> SA, KE, Nr, N(NAT_DETECTION_*), [CERTREQ]
-		// Init -> SK { IDi, [CERT+], [CERTREQ+], [IDr], AUTH, SAi2, TSi, TSr }
-		// 等等，对于 EAP-AKA:
-		// Init -> SK { IDi, SAi2, TSi, TSr, N(EAP_ONLY) }  (还没有 AUTH，因为我们要进行 EAP)
-		// Resp -> SK { IDr, AUTH, EAP(Request) }
+		// 3. IKE_AUTH (RFC 7296 §2.2 标准 EAP 流程)
+		// Init -> SK { IDi, AUTH, SAi2, TSi, TSr, N(MOBIKE), N(TICKET_REQUEST), N(INITIAL_CONTACT) }
+		// Resp -> SK { IDr, EAP(Request) }
+		// ... EAP 交换 ...
+		// Resp -> SK { EAP(Success), AUTH }
+		// Init -> SK { AUTH }  (最终确认)
 
 		payloads, err := s.buildIKEAuthInitPayloads()
 		if err != nil {

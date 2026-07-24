@@ -22,6 +22,7 @@ type Config struct {
 	// 可选的特定配置
 	MCC       string
 	MNC       string
+	IMSI      string // 可选: 预设 IMSI，当 SIM.GetIMSI() 返回空时作为 fallback
 	LocalPort uint16 // 本地 UDP 端口 (默认 500)
 	// IKE SA 重认证间隔（秒），0 表示禁用
 	// 默认 0 (不主动重认证，仅 Rekey)

@@ -19,7 +19,10 @@ import (
 )
 
 func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
-	// 载荷: IDi, SA, TS, TS, N(EAP_ONLY)
+	// RFC 7296 §2.2: 标准 IKEv2 EAP 流程
+	// Init -> SK { IDi, IDr, SAi2, TSi, TSr, N(MOBIKE), N(TICKET_REQUEST), N(INITIAL_CONTACT) }
+	// 注意: 第一包不包含 AUTH payload（EAP 完成后才发送最终 AUTH）
+	// 注意: 不发送 N(EAP_ONLY_AUTHENTICATION)，部分 ePDG 不支持 RFC 5998 会直接返回 AUTHENTICATION_FAILED
 
 	// 1. IDi
 	var nai string
@@ -28,8 +31,8 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 		s.Logger.Info("IKE_AUTH: 探测到缓存的 FastReauthID 假名，替代 IMSI 暴露身份", logger.String("nai", nai))
 	} else {
 		imsi, err := s.cfg.SIM.GetIMSI()
-		if err != nil {
-			return nil, err
+		if err != nil || imsi == "" {
+			imsi = s.cfg.IMSI // fallback: 使用 Config 中预设的 IMSI
 		}
 		nai = buildNAI(imsi, s.cfg)
 	}
@@ -43,6 +46,13 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 		IDData:      []byte(s.cfg.APN),
 		IsInitiator: false,
 	}
+	s.Logger.Debug("IKE_AUTH IDi/IDr 调试",
+		logger.String("idi_type", "RFC822_ADDR"),
+		logger.String("idi_nai", nai),
+		logger.String("idr_type", "FQDN"),
+		logger.String("idr_apn", s.cfg.APN),
+		logger.String("cfg_mcc", s.cfg.MCC),
+		logger.String("cfg_mnc", s.cfg.MNC))
 
 	// 1b. CP (CFG_REQUEST)
 	ipv6Req := make([]byte, net.IPv6len+1)
@@ -96,11 +106,6 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	tsPayloadI := &ikev2.EncryptedPayloadTS{IsInitiator: true, TrafficSelectors: []*ikev2.TrafficSelector{ts4, ts6}}
 	tsPayloadR := &ikev2.EncryptedPayloadTS{IsInitiator: false, TrafficSelectors: []*ikev2.TrafficSelector{ts4, ts6}}
 
-	notifyPayload := &ikev2.EncryptedPayloadNotify{
-		ProtocolID: ikev2.ProtoIKE,
-		NotifyType: ikev2.EAP_ONLY_AUTHENTICATION,
-	}
-
 	// MOBIKE_SUPPORTED (RFC 4555)
 	mobikePayload := &ikev2.EncryptedPayloadNotify{
 		ProtocolID: 0,
@@ -122,24 +127,77 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	}
 	s.Logger.Debug("IKE_AUTH 已注入 INITIAL_CONTACT，要求 ePDG 清理旧隧道残留")
 
-	payloads := []ikev2.Payload{idPayload, idrPayload, cpPayload, saPayload, tsPayloadI, tsPayloadR, notifyPayload, mobikePayload, ticketReqPayload, initialContactPayload}
-	if p, ok := s.cfg.SIM.(sim.IMEIProvider); ok {
-		if imei, err := p.GetIMEI(); err == nil && imei != "" {
-			data := append([]byte{0x01}, []byte(imei)...)
-			payloads = append(payloads, &ikev2.EncryptedPayloadNotify{
-				ProtocolID: ikev2.ProtoIKE,
-				NotifyType: ikev2.DEVICE_IDENTITY_3GPP,
-				NotifyData: data,
-			})
-			devicePayload := &ikev2.EncryptedPayloadNotify{
-				ProtocolID: ikev2.ProtoIKE,
-				NotifyType: ikev2.DEVICE_IDENTITY,
-				NotifyData: data,
-			}
-			payloads = append(payloads, devicePayload)
-		}
-	}
+	payloads := []ikev2.Payload{idPayload, idrPayload, cpPayload, saPayload, tsPayloadI, tsPayloadR, mobikePayload, ticketReqPayload, initialContactPayload}
+	// DEVICE_IDENTITY notify 已禁用：v1.5.5 基线不发送此 notify (device_identity_present=false)，
+	// 部分 ePDG 对未知 notify 处理不当可能返回 AUTHENTICATION_FAILED
+	// if p, ok := s.cfg.SIM.(sim.IMEIProvider); ok {
+	// 	if imei, err := p.GetIMEI(); err == nil && imei != "" {
+	// 		data := append([]byte{0x01}, []byte(imei)...)
+	// 		payloads = append(payloads, &ikev2.EncryptedPayloadNotify{
+	// 			ProtocolID: ikev2.ProtoIKE,
+	// 			NotifyType: ikev2.DEVICE_IDENTITY_3GPP,
+	// 			NotifyData: data,
+	// 		})
+	// 		devicePayload := &ikev2.EncryptedPayloadNotify{
+	// 			ProtocolID: ikev2.ProtoIKE,
+	// 			NotifyType: ikev2.DEVICE_IDENTITY,
+	// 			NotifyData: data,
+	// 		}
+	// 		payloads = append(payloads, devicePayload)
+	// 	}
+	// }
 	return payloads, nil
+}
+
+// buildInitiatorAuthPayload 计算发起方的 AUTH 载荷
+// key 参数: 第一包用 SK_pi, 最终包用 MSK (EAP 派生)
+// AUTH = prf(prf(key, "Key Pad for IKEv2"), RealMessage1 | NonceR | prf(SK_pi, IDi_Body))
+func (s *Session) buildInitiatorAuthPayload(key []byte) (*ikev2.EncryptedPayloadAuth, error) {
+	if len(key) == 0 {
+		return nil, errors.New("AUTH key 不可用 (SK_pi/MSK 为空)")
+	}
+	prf := s.PRFAlg
+	if prf == nil {
+		return nil, errors.New("PRF 不可用")
+	}
+	if len(s.msgBuffer) == 0 {
+		return nil, errors.New("SA_INIT 请求未存储")
+	}
+	if len(s.nr) == 0 {
+		return nil, errors.New("NonceR 不可用")
+	}
+
+	// 1. authKey = prf(key, "Key Pad for IKEv2")
+	keyPad := []byte("Key Pad for IKEv2")
+	mac := hmac.New(prf.Hash, key)
+	mac.Write(keyPad)
+	authKey := mac.Sum(nil)
+
+	// 2. idHash = prf(SK_pi, IDi_Body)
+	imsi, _ := s.cfg.SIM.GetIMSI()
+	if imsi == "" {
+		imsi = s.cfg.IMSI
+	}
+	nai := buildNAI(imsi, s.cfg)
+	idiBody := make([]byte, 4+len(nai))
+	idiBody[0] = ikev2.ID_RFC822_ADDR
+	copy(idiBody[4:], []byte(nai))
+
+	macID := hmac.New(prf.Hash, s.Keys.SK_pi)
+	macID.Write(idiBody)
+	idHash := macID.Sum(nil)
+
+	// 3. AUTH = prf(authKey, RealMessage1 | NonceR | idHash)
+	macAuth := hmac.New(prf.Hash, authKey)
+	macAuth.Write(s.msgBuffer)
+	macAuth.Write(s.nr)
+	macAuth.Write(idHash)
+	authData := macAuth.Sum(nil)
+
+	return &ikev2.EncryptedPayloadAuth{
+		AuthMethod: ikev2.AuthMethodSharedKey,
+		AuthData:   authData,
+	}, nil
 }
 
 // handleEAP 处理从 ePDG 接收到的 EAP (Extensible Authentication Protocol) 报文。
@@ -854,61 +912,12 @@ func (s *Session) buildIKEAuthFinalPayloads() ([]ikev2.Payload, error) {
 	// Message 6: SK { AUTH }
 	// AUTH = prf( prf(MSK, "Key Pad for IKEv2"), <SignedOctets> )
 	// SignedOctets = RealMessage1 | NonceR_Data | prf(SK_pi, IDi_Body)
-
 	if len(s.MSK) == 0 {
 		return nil, errors.New("MSK 不可用作 AUTH")
 	}
-
-	// 1. 计算 Auth Key
-	keyPad := []byte("Key Pad for IKEv2")
-	prf := s.PRFAlg
-	if prf == nil {
-		return nil, errors.New("PRF 不可用")
-	}
-
-	mac := hmac.New(prf.Hash, s.MSK)
-	mac.Write(keyPad)
-	authKey := mac.Sum(nil)
-
-	// 2. 计算签名八位字节
-	// 2a. RealMessage1 (IKE_SA_INIT 请求)
-	// 我们把它存储在 s.msgBuffer 了吗？
-	// 确保 s.msgBuffer 正是发送的内容。
-	if len(s.msgBuffer) == 0 {
-		return nil, errors.New("SA_INIT 请求未存储")
-	}
-
-	// 2b. NonceR
-	if len(s.nr) == 0 {
-		return nil, errors.New("NonceR 不可用")
-	}
-
-	// 2c. prf(SK_pi, IDi_Body)
-	// 重建 IDi Body
-	imsi, _ := s.cfg.SIM.GetIMSI()
-	nai := buildNAI(imsi, s.cfg)
-
-	// ID 载荷主体: IDType(1 byte) + Reserved(3 bytes) + IDData
-	// IDType = ID_RFC822_ADDR (3)
-	idiBody := make([]byte, 4+len(nai))
-	idiBody[0] = ikev2.ID_RFC822_ADDR
-	copy(idiBody[4:], []byte(nai))
-
-	macID := hmac.New(prf.Hash, s.Keys.SK_pi)
-	macID.Write(idiBody)
-	idHash := macID.Sum(nil)
-
-	// 组合八位字节签名
-	macAuth := hmac.New(prf.Hash, authKey)
-	macAuth.Write(s.msgBuffer)
-	macAuth.Write(s.nr)
-	macAuth.Write(idHash)
-	authData := macAuth.Sum(nil)
-
-	// 3. 构造 AUTH 载荷
-	authPayload := &ikev2.EncryptedPayloadAuth{
-		AuthMethod: ikev2.AuthMethodSharedKey, // 2 = Shared Key MIC
-		AuthData:   authData,
+	authPayload, err := s.buildInitiatorAuthPayload(s.MSK)
+	if err != nil {
+		return nil, err
 	}
 	return []ikev2.Payload{authPayload}, nil
 }

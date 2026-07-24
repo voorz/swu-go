@@ -22,12 +22,12 @@ type RetryConfig struct {
 }
 
 // DefaultRetryConfig 默认重传配置
-// 对齐 v1.5.5 实测行为：InitialTimeout=2s, BackoffFactor=1.6, MaxTimeout=6s, MaxRetries=3
-// 推导依据：v1.5.5 日志重传序列 3.2s → 5.12s → 6s(封顶)，3 次重传后硬超时
+// InitialTimeout=3s, BackoffFactor=1.6, MaxTimeout=6s, MaxRetries=3
+// 总超时: 3 + 4.8 + 6 + 6 ≈ 20s，兼容 mihomo 透明代理的高延迟首包
 func DefaultRetryConfig() *RetryConfig {
 	return &RetryConfig{
 		MaxRetries:     3,
-		InitialTimeout: 2 * time.Second,
+		InitialTimeout: 3 * time.Second,
 		MaxTimeout:     6 * time.Second,
 		BackoffFactor:  1.6,
 	}
