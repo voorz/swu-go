@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -293,7 +294,16 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		}
 
 		imsi, _ := s.cfg.SIM.GetIMSI()
+		if imsi == "" && s.cfg.IMSI != "" {
+			imsi = s.cfg.IMSI
+		}
 		identity := []byte(buildNAI(imsi, s.cfg))
+		s.Logger.Debug("EAP-AKA MK 推导调试",
+			logger.String("imsi", imsi),
+			logger.String("identity", string(identity)),
+			logger.String("ck_hex", hex.EncodeToString(ck)),
+			logger.String("ik_hex", hex.EncodeToString(ik)),
+			logger.String("res_hex", hex.EncodeToString(res)))
 
 		derive := func(order int) (kAut []byte, msk []byte, mk []byte, err error) {
 			h := sha1.New()
@@ -308,6 +318,11 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			mk = h.Sum(nil)
 
 			keyMat := crypto.NewFIPS1862PRFSHA1(mk).Bytes(nil, 16+16+64)
+			s.Logger.Debug("EAP-AKA 密钥推导",
+				logger.Int("order", order),
+				logger.String("mk_hex", hex.EncodeToString(mk)),
+				logger.String("kAut_hex", hex.EncodeToString(keyMat[16:32])),
+				logger.String("kEncr_hex", hex.EncodeToString(keyMat[0:16])))
 			return keyMat[16:32], keyMat[32:96], mk, nil
 		}
 
@@ -329,6 +344,8 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 				kAut = kAutTry
 				msk = mskTry
 				macVerified = true
+				s.Logger.Debug("EAP-AKA 跳过 AT_MAC 验证 (DisableEAPMACValidation=true)",
+					logger.Int("order", order))
 				break
 			}
 			if err := verifyEAPAKAMAC(eapRaw, pkt.Data, kAutTry, recvMac); err == nil {
@@ -530,6 +547,9 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 
 		// RFC 5448 §3.4: MK = SHA-256(Identity|IK'|CK')
 		imsi, _ := s.cfg.SIM.GetIMSI()
+		if imsi == "" && s.cfg.IMSI != "" {
+			imsi = s.cfg.IMSI
+		}
 		identity := []byte(buildNAI(imsi, s.cfg))
 
 		mkHash := sha256.New()
@@ -787,6 +807,13 @@ func verifyEAPAKAMAC(eapRaw []byte, attrsData []byte, kAut []byte, recvMac []byt
 	mac := hmac.New(sha1.New, kAut)
 	mac.Write(tmp)
 	fullMac := mac.Sum(nil)
+
+	// 调试: 打印校验详情
+	fmt.Printf("[AT_MAC_DEBUG] eapRaw_len=%d macPos=%d recvMac=%s calcMac=%s\n",
+		len(eapRaw), macPos,
+		hex.EncodeToString(recvMac),
+		hex.EncodeToString(fullMac[:16]))
+	fmt.Printf("[AT_MAC_DEBUG] eapRaw_hex=%s\n", hex.EncodeToString(eapRaw))
 
 	if !hmac.Equal(fullMac[:16], recvMac) {
 		return errors.New("EAP-AKA AT_MAC 校验失败")
