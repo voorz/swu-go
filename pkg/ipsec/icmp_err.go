@@ -5,7 +5,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/logger"
 	"golang.org/x/sys/unix"
 )
 

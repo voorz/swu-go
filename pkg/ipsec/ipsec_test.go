@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/1239t/swu-go/pkg/crypto"
+	"github.com/voorz/swu-go/pkg/crypto"
 )
 
 // TestESPEncapsulateDecapsulate 测试 ESP 封装和解封装

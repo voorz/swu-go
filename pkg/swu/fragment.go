@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/1239t/swu-go/pkg/crypto"
-	"github.com/1239t/swu-go/pkg/ikev2"
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/crypto"
+	"github.com/voorz/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/logger"
 )
 
 // RFC 7383: IKE Fragmentation

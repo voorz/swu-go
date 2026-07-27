@@ -3,7 +3,7 @@ package ipsec
 import (
 	"testing"
 
-	"github.com/1239t/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/ikev2"
 )
 
 func TestParseIKEPayloadWithAndWithoutMarker(t *testing.T) {

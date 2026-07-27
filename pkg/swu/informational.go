@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/1239t/swu-go/pkg/ikev2"
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/logger"
 )
 
 // sendDPD 发送 Dead Peer Detection 请求，返回的 err 仅指打包入列错误

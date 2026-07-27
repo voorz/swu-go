@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/1239t/swu-go/pkg/ikev2"
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/logger"
 )
 
 // ErrWindowTimeout 当一个请求达到最大重试次数也没有收到相应的包时抛出

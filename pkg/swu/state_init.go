@@ -11,9 +11,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/1239t/swu-go/pkg/crypto"
-	"github.com/1239t/swu-go/pkg/ikev2"
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/crypto"
+	"github.com/voorz/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/logger"
 )
 
 func detectOutboundIPv4(remoteIP net.IP, remotePort uint16) (net.IP, error) {
@@ -281,7 +281,11 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 			if setter, ok := s.socket.(interface{ SetRemotePort(int) }); ok {
 				setter.SetRemotePort(4500)
 			}
-			s.startNATKeepalive(20 * time.Second)
+			natKeepalive := 20 * time.Second
+			if s.cfg.NATKeepaliveInterval > 0 {
+				natKeepalive = time.Duration(s.cfg.NATKeepaliveInterval) * time.Second
+			}
+			s.startNATKeepalive(natKeepalive)
 			s.Logger.Debug("检测到 NAT，切换到 UDP 4500")
 		}
 	}

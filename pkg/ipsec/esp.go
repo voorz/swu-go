@@ -3,7 +3,7 @@ package ipsec
 import (
 	"encoding/binary"
 	"errors"
-	"github.com/1239t/swu-go/pkg/crypto"
+	"github.com/voorz/swu-go/pkg/crypto"
 )
 
 // ESP 数据包格式

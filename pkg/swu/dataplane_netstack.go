@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net"
 
-	"github.com/1239t/swu-go/pkg/ipsec"
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/ipsec"
+	"github.com/voorz/swu-go/pkg/logger"
 )
 
 const netstackInnerQueueDepth = 256

@@ -11,12 +11,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/1239t/swu-go/pkg/crypto"
-	"github.com/1239t/swu-go/pkg/eap"
-	"github.com/1239t/swu-go/pkg/ikev2"
-	"github.com/1239t/swu-go/pkg/ipsec"
-	"github.com/1239t/swu-go/pkg/logger"
-	"github.com/1239t/swu-go/pkg/sim"
+	"github.com/voorz/swu-go/pkg/crypto"
+	"github.com/voorz/swu-go/pkg/eap"
+	"github.com/voorz/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/ipsec"
+	"github.com/voorz/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/sim"
 )
 
 func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
@@ -129,24 +129,26 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	s.Logger.Debug("IKE_AUTH 已注入 INITIAL_CONTACT，要求 ePDG 清理旧隧道残留")
 
 	payloads := []ikev2.Payload{idPayload, idrPayload, cpPayload, saPayload, tsPayloadI, tsPayloadR, mobikePayload, ticketReqPayload, initialContactPayload}
-	// DEVICE_IDENTITY notify 已禁用：v1.5.5 基线不发送此 notify (device_identity_present=false)，
-	// 部分 ePDG 对未知 notify 处理不当可能返回 AUTHENTICATION_FAILED
-	// if p, ok := s.cfg.SIM.(sim.IMEIProvider); ok {
-	// 	if imei, err := p.GetIMEI(); err == nil && imei != "" {
-	// 		data := append([]byte{0x01}, []byte(imei)...)
-	// 		payloads = append(payloads, &ikev2.EncryptedPayloadNotify{
-	// 			ProtocolID: ikev2.ProtoIKE,
-	// 			NotifyType: ikev2.DEVICE_IDENTITY_3GPP,
-	// 			NotifyData: data,
-	// 		})
-	// 		devicePayload := &ikev2.EncryptedPayloadNotify{
-	// 			ProtocolID: ikev2.ProtoIKE,
-	// 			NotifyType: ikev2.DEVICE_IDENTITY,
-	// 			NotifyData: data,
-	// 		}
-	// 		payloads = append(payloads, devicePayload)
-	// 	}
-	// }
+	// DEVICE_IDENTITY notify: default disabled (v1.5.5 baseline device_identity_present=false).
+	// Per-carrier override via cfg.DeviceIdentityEnabled.
+	if s.cfg.DeviceIdentityEnabled != nil && *s.cfg.DeviceIdentityEnabled {
+		if p, ok := s.cfg.SIM.(sim.IMEIProvider); ok {
+			if imei, err := p.GetIMEI(); err == nil && imei != "" {
+				data := append([]byte{0x01}, []byte(imei)...)
+				payloads = append(payloads, &ikev2.EncryptedPayloadNotify{
+					ProtocolID: ikev2.ProtoIKE,
+					NotifyType: ikev2.DEVICE_IDENTITY_3GPP,
+					NotifyData: data,
+				})
+				devicePayload := &ikev2.EncryptedPayloadNotify{
+					ProtocolID: ikev2.ProtoIKE,
+					NotifyType: ikev2.DEVICE_IDENTITY,
+					NotifyData: data,
+				}
+				payloads = append(payloads, devicePayload)
+			}
+		}
+	}
 	return payloads, nil
 }
 

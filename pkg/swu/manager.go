@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/logger"
 	"go.uber.org/zap"
 )
 

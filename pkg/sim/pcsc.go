@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/logger"
 )
 
 // PCSCSIMProvider PC/SC 智能卡读卡器接口

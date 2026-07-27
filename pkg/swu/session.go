@@ -14,12 +14,12 @@ import (
 
 	"github.com/iniwex5/netlink"
 	"github.com/iniwex5/netlink/nl"
-	"github.com/1239t/swu-go/pkg/crypto"
-	"github.com/1239t/swu-go/pkg/driver"
-	"github.com/1239t/swu-go/pkg/eap"
-	"github.com/1239t/swu-go/pkg/ikev2"
-	"github.com/1239t/swu-go/pkg/ipsec"
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/crypto"
+	"github.com/voorz/swu-go/pkg/driver"
+	"github.com/voorz/swu-go/pkg/eap"
+	"github.com/voorz/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/ipsec"
+	"github.com/voorz/swu-go/pkg/logger"
 	"go.uber.org/zap"
 )
 
@@ -533,6 +533,11 @@ func (s *Session) connectOnce() error {
 	// 启动 Reauth Timer (如果配置了)
 	if s.cfg.ReauthInterval > 0 {
 		s.startIKEReauthTimer(time.Duration(s.cfg.ReauthInterval) * time.Second)
+	}
+
+	// 启动 DPD 后台探测 (如果配置了)
+	if s.cfg.DPDInterval > 0 {
+		s.StartDPD(time.Duration(s.cfg.DPDInterval) * time.Second)
 	}
 
 	// 启动 XFRM SA Expire 内核事件监听（仅做日志+Hard Expire 处理）

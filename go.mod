@@ -1,4 +1,4 @@
-module github.com/1239t/swu-go
+module github.com/voorz/swu-go
 
 go 1.24.0
 

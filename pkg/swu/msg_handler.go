@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/1239t/swu-go/pkg/crypto"
-	"github.com/1239t/swu-go/pkg/ikev2"
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/crypto"
+	"github.com/voorz/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/logger"
 )
 
 func (s *Session) decryptAndParse(data []byte) (uint32, []ikev2.Payload, error) {

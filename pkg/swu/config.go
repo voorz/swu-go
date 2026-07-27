@@ -1,7 +1,7 @@
 package swu
 
 import (
-	"github.com/1239t/swu-go/pkg/sim"
+	"github.com/voorz/swu-go/pkg/sim"
 )
 
 type Config struct {
@@ -70,4 +70,31 @@ type Config struct {
 	// 示例：[]string{"aes256gcm16-prfsha384-ecp384", "aes128-sha256-modp2048"}
 	IKEProposals []string
 	ESPProposals []string
+
+	// --- 运营商预设字段 (v1.5.5 YAML carrier presets) ---
+
+	// DPDInterval is the Dead Peer Detection interval in seconds.
+	// 0 = disabled (DPD not started). Typical value: 600.
+	DPDInterval int
+
+	// NATKeepaliveInterval is the NAT-T keepalive interval in seconds.
+	// 0 = use default (20s). Typical value: 20.
+	NATKeepaliveInterval int
+
+	// DeviceIdentityEnabled controls whether the DEVICE_IDENTITY notify is sent.
+	// nil = default (disabled, aligning with v1.5.5 baseline).
+	// Pointer to true/false allows explicit override per carrier.
+	DeviceIdentityEnabled *bool
+
+	// AKAChallengeMode controls EAP-AKA challenge behavior.
+	// "standard" (default), "checkcode", "omit".
+	AKAChallengeMode string
+
+	// IPStack controls which IP stack the IKE/IPsec tunnel uses.
+	// "ipv4", "ipv6", "ipv4v6". Empty = auto (both).
+	IPStack string
+
+	// DeviceModel is a carrier-specific device model hint used for
+	// identity derivation (e.g. "rmx3366", "iphone15,4").
+	DeviceModel string
 }

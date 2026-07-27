@@ -5,7 +5,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/1239t/swu-go/pkg/logger"
+	"github.com/voorz/swu-go/pkg/logger"
 )
 
 // DataPlane 数据平面管理

@@ -1,6 +1,6 @@
 package swu
 
-import "github.com/1239t/swu-go/pkg/ipsec"
+import "github.com/voorz/swu-go/pkg/ipsec"
 
 type Transport interface {
 	Start()

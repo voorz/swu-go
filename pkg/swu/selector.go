@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"net"
 
-	"github.com/1239t/swu-go/pkg/ikev2"
-	"github.com/1239t/swu-go/pkg/ipsec"
+	"github.com/voorz/swu-go/pkg/ikev2"
+	"github.com/voorz/swu-go/pkg/ipsec"
 )
 
 func (s *Session) selectOutgoingSA(packet []byte) *ipsec.SecurityAssociation {
