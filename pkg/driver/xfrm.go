@@ -6,7 +6,7 @@ import (
 	"net"
 	"syscall"
 
-	"github.com/iniwex5/netlink"
+	"github.com/voorz/netlink"
 )
 
 // XFRMManager 封装 Linux XFRM 子系统操作
@@ -160,7 +160,7 @@ func (x *XFRMManager) AddSA(cfg XFRMSAConfig) error {
 		Spi:          int(cfg.SPI),
 		ReplayWindow: replayWindow,
 		Ifid:         cfg.Ifid,
-		// AFUnspec 字段在 iniwex5/netlink fork 中不存在，已移除
+		// AFUnspec 字段在 voorz/netlink fork 中不存在，已移除
 		// (原 strongswan: tunnel mode SA 需要设置 XFRM_STATE_AF_UNSPEC)
 		ESN:      cfg.ESN,
 		SADir:    cfg.SADir,

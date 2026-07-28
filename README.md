@@ -42,7 +42,7 @@
 ## 安装
 
 ```bash
-go get github.com/iniwex5/swu-go
+go get github.com/voorz/swu-go
 ```
 
 ## 依赖
@@ -50,7 +50,7 @@ go get github.com/iniwex5/swu-go
 - Go 1.24+
 - Linux（需要 XFRM / TUN/TAP / Netlink 支持）
 - Root 权限（网络配置需要）
-- [github.com/iniwex5/netlink](https://github.com/iniwex5/netlink) — vishvananda/netlink 的 fork，增加了 `XFRM_STATE_AF_UNSPEC`、`XFRMA_SA_DIR`、`ESN` 支持
+- [github.com/voorz/netlink](https://github.com/voorz/netlink) — vishvananda/netlink 的 fork，增加了 `XFRM_STATE_AF_UNSPEC`、`XFRMA_SA_DIR`、`ESN` 支持
 
 ## 配置项
 
@@ -89,8 +89,8 @@ package main
 
 import (
     "context"
-    "github.com/iniwex5/swu-go/pkg/swu"
-    "github.com/iniwex5/swu-go/pkg/sim"
+    "github.com/voorz/swu-go/pkg/swu"
+    "github.com/voorz/swu-go/pkg/sim"
 )
 
 func main() {
