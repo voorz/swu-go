@@ -22,14 +22,13 @@ type RetryConfig struct {
 }
 
 // DefaultRetryConfig 默认重传配置
-// InitialTimeout=3s, BackoffFactor=1.6, MaxTimeout=6s, MaxRetries=3
-// 总超时: 3 + 4.8 + 6 + 6 ≈ 20s，兼容 mihomo 透明代理的高延迟首包
+// 对齐 strongSwan 默认值 (retransmit_timeout=4s, retransmit_base=1.8, retransmit_tries=5)
 func DefaultRetryConfig() *RetryConfig {
 	return &RetryConfig{
-		MaxRetries:     3,
-		InitialTimeout: 3 * time.Second,
-		MaxTimeout:     6 * time.Second,
-		BackoffFactor:  1.6,
+		MaxRetries:     5,
+		InitialTimeout: 4 * time.Second,
+		MaxTimeout:     0, // 0 表示无上限，与 strongSwan retransmit_limit=0 一致
+		BackoffFactor:  1.8,
 	}
 }
 
