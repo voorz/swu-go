@@ -206,7 +206,7 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 			// IKE Fragmentation (RFC 7383)
 			if v.NotifyType == ikev2.IKEV2_FRAGMENTATION_SUPPORTED {
 				s.fragmentationSupported = true
-				s.Logger.Info("ePDG 支持 IKE Fragmentation")
+				s.Logger.Info(s.pfx("ePDG 支持 IKE Fragmentation"))
 			}
 			// 检查错误，如 NO_PROPOSAL_CHOSEN
 			if v.NotifyType == 14 { // NO_PROPOSAL_CHOSEN
@@ -216,7 +216,7 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 			if v.NotifyType == ikev2.REDIRECT {
 				addr, err := ParseRedirectData(v.NotifyData)
 				if err != nil {
-					s.Logger.Warn("解析 REDIRECT 数据失败", logger.Err(err))
+					s.Logger.Warn(s.pfx("解析 REDIRECT 数据失败"), logger.Err(err))
 				} else {
 					return &RedirectError{NewAddr: addr}
 				}
@@ -286,7 +286,7 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 				natKeepalive = time.Duration(s.cfg.NATKeepaliveInterval) * time.Second
 			}
 			s.startNATKeepalive(natKeepalive)
-			s.Logger.Debug("检测到 NAT，切换到 UDP 4500")
+			s.Logger.Debug(s.pfx("检测到 NAT，切换到 UDP 4500"))
 		}
 	}
 
@@ -318,7 +318,7 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 		}
 	}
 
-	s.Logger.Debug("ePDG_SA_INIT: IKE SA 算法协商成功",
+	s.Logger.Debug(s.pfx("ePDG_SA_INIT: IKE SA 算法协商成功"),
 		logger.String("encr", ikev2.EncrToString(encrID)),
 		logger.Int("encr_key_bits", encrKeyLenBits),
 		logger.String("integ", ikev2.IntegToString(integID)),
@@ -355,7 +355,7 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 	}
 
 	// 计算密钥
-	s.Logger.Debug("正在生成密钥材料")
+	s.Logger.Debug(s.pfx("正在生成密钥材料"))
 	if err := s.GenerateIKESAKeys(s.nr); err != nil {
 		return err
 	}

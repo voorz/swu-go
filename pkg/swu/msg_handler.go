@@ -22,7 +22,7 @@ func (s *Session) decryptAndParse(data []byte) (uint32, []ikev2.Payload, error) 
 		if err != nil {
 			return header.MessageID, nil, fmt.Errorf("SKF 解密失败: %v", err)
 		}
-		s.Logger.Debug("收到 IKE 分片",
+		s.Logger.Debug(s.pfx("收到 IKE 分片"),
 			logger.Int("frag", int(fragNum)),
 			logger.Int("total", int(totalFrags)),
 			logger.Uint32("msgID", msgID))

@@ -25,12 +25,12 @@ func (s *Session) RekeyChildSA() error {
 
 	// 冷却期去重（在 mutex 内检查，确保第二个 goroutine 能看到最新的 lastRekeyTime）
 	if !s.lastRekeyTime.IsZero() && time.Since(s.lastRekeyTime) < 30*time.Second {
-		s.Logger.Debug("Rekey 冷却期内，跳过重复 Rekey",
+		s.Logger.Debug(s.pfx("Rekey 冷却期内，跳过重复 Rekey"),
 			logger.Duration("sinceLast", time.Since(s.lastRekeyTime)))
 		return nil
 	}
 
-	s.Logger.Info("开始 CHILD_SA Rekey")
+	s.Logger.Info(s.pfx("开始 CHILD_SA Rekey"))
 
 	// 1. 生成新的 Nonce
 	newNonce, err := crypto.RandomBytes(32)
@@ -98,22 +98,22 @@ func (s *Session) RekeyChildSA() error {
 		return fmt.Errorf("CREATE_CHILD_SA 失败: %v", err)
 	}
 
-	s.Logger.Info("Rekey 收到 ePDG 响应", logger.Int("len", len(respData)))
+	s.Logger.Info(s.pfx("Rekey 收到 ePDG 响应"), logger.Int("len", len(respData)))
 	return s.handleCreateChildSAResp(respData, newNonce, newSPIValue)
 }
 
 // handleCreateChildSAResp 处理 CREATE_CHILD_SA 响应
 func (s *Session) handleCreateChildSAResp(data []byte, niNonce []byte, newSPI uint32) error {
-	s.Logger.Debug("开始解密 Rekey 响应", logger.Int("dataLen", len(data)))
+	s.Logger.Debug(s.pfx("开始解密 Rekey 响应"), logger.Int("dataLen", len(data)))
 	_, payloads, err := s.decryptAndParse(data)
 	if err != nil {
-		s.Logger.Warn("Rekey 响应解密失败", logger.Err(err))
+		s.Logger.Warn(s.pfx("Rekey 响应解密失败"), logger.Err(err))
 		return err
 	}
 
-	s.Logger.Info("Rekey 响应解密成功", logger.Int("payloadCount", len(payloads)))
+	s.Logger.Info(s.pfx("Rekey 响应解密成功"), logger.Int("payloadCount", len(payloads)))
 	for i, pl := range payloads {
-		s.Logger.Debug("Rekey 响应载荷",
+		s.Logger.Debug(s.pfx("Rekey 响应载荷"),
 			logger.Int("index", i),
 			logger.String("type", fmt.Sprintf("%T", pl)))
 	}
@@ -246,11 +246,11 @@ func (s *Session) handleCreateChildSAResp(data []byte, niNonce []byte, newSPI ui
 	// 更新内核 XFRM SA（XFRMI 模式）
 	if s.xfrmMgr != nil {
 		if err := s.rekeyXFRMSA(oldOutSPI, oldInSPI, newSAOut, newSAIn, encrID, encrKeyLenBits); err != nil {
-			s.Logger.Warn("Rekey 后更新内核 XFRM SA 失败", logger.Err(err))
+			s.Logger.Warn(s.pfx("Rekey 后更新内核 XFRM SA 失败"), logger.Err(err))
 		}
 	}
 
-	s.Logger.Info("CHILD_SA Rekey 成功", logger.Uint32("oldSPI", oldOutSPI), logger.Uint32("newSPI", newSPI))
+	s.Logger.Info(s.pfx("CHILD_SA Rekey 成功"), logger.Uint32("oldSPI", oldOutSPI), logger.Uint32("newSPI", newSPI))
 
 	// 更新冷却期时间戳（防止另一个 SPI 的 Soft Expire 再次触发 rekey）
 	s.lastRekeyTime = time.Now()
@@ -263,7 +263,7 @@ func (s *Session) handleCreateChildSAResp(data []byte, niNonce []byte, newSPI ui
 
 	// 同步发送删除旧 SA 的通知（不用 goroutine，避免 msgID 竞争）
 	if err := s.sendDeleteChildSA([]uint32{oldOutSPI}); err != nil {
-		s.Logger.Warn("发送旧 Child SA Delete 通知失败", logger.Err(err))
+		s.Logger.Warn(s.pfx("发送旧 Child SA Delete 通知失败"), logger.Err(err))
 	}
 
 	return nil

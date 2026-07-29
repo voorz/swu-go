@@ -14,7 +14,7 @@ import (
 
 // performSessionResumption 执行 RFC 5723 快速恢复握手
 func (s *Session) performSessionResumption() error {
-	s.Logger.Info("利用 Ticket 发起 IKE_SESSION_RESUME 闪电恢复", logger.Int("ticketLen", len(s.resumeTicket)))
+	s.Logger.Info(s.pfx("利用 Ticket 发起 IKE_SESSION_RESUME 闪电恢复"), logger.Int("ticketLen", len(s.resumeTicket)))
 
 	// 1. 构造并发送 IKE_SESSION_RESUME 报文
 	if len(s.ni) == 0 {
@@ -72,7 +72,7 @@ func (s *Session) performSessionResumption() error {
 
 	// 3. 执行 Childless AUTH 或者携带着新创建的 CHILD_SA 索求 CP
 	// 按照 RFC 5723 5.1, IKE_AUTH 是可选的或者仅请求配置。
-	s.Logger.Info("IKE_SESSION_RESUME 第一阶段完成，准备换发新密钥后的 IKE_AUTH")
+	s.Logger.Info(s.pfx("IKE_SESSION_RESUME 第一阶段完成，准备换发新密钥后的 IKE_AUTH"))
 	return s.sendIkeAuthChildless()
 }
 
@@ -126,7 +126,7 @@ func (s *Session) handleIkeSessionResumeResp(data []byte) error {
 
 	// 重建 IKE_SA Keys
 	// 利用新的 SKEYSEED 走标准的 prf+
-	s.Logger.Debug("利用复活 SKEYSEED 开始洗牌生成新密钥材料")
+	s.Logger.Debug(s.pfx("利用复活 SKEYSEED 开始洗牌生成新密钥材料"))
 
 	// 从原有的算法继承，因为加密方式不改变
 	// SKEYSEED 长度由 PRFAlg 决定
@@ -230,7 +230,7 @@ func (s *Session) sendIkeAuthChildless() error {
 		}
 	}
 	if eapPayload != nil {
-		s.Logger.Warn("SESSION_RESUME 遭遇了非预期的服务端 EAP 降级索求！将放弃无感恢复。")
+		s.Logger.Warn(s.pfx("SESSION_RESUME 遭遇了非预期的服务端 EAP 降级索求！将放弃无感恢复。"))
 		return errors.New("unexpected EAP payload in resumed auth")
 	}
 

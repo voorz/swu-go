@@ -64,7 +64,7 @@ func (s *Session) InnerPackets() <-chan []byte {
 }
 
 func (s *Session) startNetstackDataPlaneLoop() {
-	s.Logger.Info("ESP netstack 数据平面循环启动")
+	s.Logger.Info(s.pfx("ESP netstack 数据平面循环启动"))
 
 	go func() {
 		var txCount, espSendCount, saDropCount uint64
@@ -100,7 +100,7 @@ func (s *Session) startNetstackDataPlaneLoop() {
 				if saOut == nil {
 					saDropCount++
 					if saDropCount <= 5 || saDropCount%100 == 0 {
-						s.Logger.Warn("netstack ESP 出站 SA 为空，丢弃数据包",
+						s.Logger.Warn(s.pfx("netstack ESP 出站 SA 为空，丢弃数据包"),
 							logger.Uint64("dropCount", saDropCount),
 							logger.String("dstIP", dstIP),
 							logger.Int("proto", int(proto)),
@@ -111,11 +111,11 @@ func (s *Session) startNetstackDataPlaneLoop() {
 
 				espPacket, err := ipsec.Encapsulate(packet, saOut)
 				if err != nil {
-					s.Logger.Warn("netstack ESP 封装错误", logger.Err(err), logger.String("dstIP", dstIP))
+					s.Logger.Warn(s.pfx("netstack ESP 封装错误"), logger.Err(err), logger.String("dstIP", dstIP))
 					continue
 				}
 				if err := s.socket.SendESP(espPacket); err != nil {
-					s.Logger.Warn("netstack ESP 发送失败", logger.Err(err), logger.String("dstIP", dstIP))
+					s.Logger.Warn(s.pfx("netstack ESP 发送失败"), logger.Err(err), logger.String("dstIP", dstIP))
 					continue
 				}
 				espSendCount++
@@ -148,13 +148,13 @@ func (s *Session) startNetstackDataPlaneLoop() {
 				}
 			}
 			if sa == nil {
-				s.Logger.Warn("netstack ESP 入站 SA 为空，丢弃数据包", logger.Uint32("spi", spi), logger.Int("len", len(espData)))
+				s.Logger.Warn(s.pfx("netstack ESP 入站 SA 为空，丢弃数据包"), logger.Uint32("spi", spi), logger.Int("len", len(espData)))
 				continue
 			}
 
 			packet, err := ipsec.Decapsulate(espData, sa)
 			if err != nil {
-				s.Logger.Warn("netstack ESP 解封装错误", logger.Err(err), logger.Uint32("spi", spi), logger.Int("len", len(espData)))
+				s.Logger.Warn(s.pfx("netstack ESP 解封装错误"), logger.Err(err), logger.Uint32("spi", spi), logger.Int("len", len(espData)))
 				continue
 			}
 
@@ -167,7 +167,7 @@ func (s *Session) startNetstackDataPlaneLoop() {
 			case s.innerRx <- cp:
 				rxCount++
 			default:
-				s.Logger.Warn("netstack 入站队列已满，丢弃数据包", logger.Int("len", len(packet)))
+				s.Logger.Warn(s.pfx("netstack 入站队列已满，丢弃数据包"), logger.Int("len", len(packet)))
 			}
 		}
 	}()

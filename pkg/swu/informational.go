@@ -10,7 +10,7 @@ import (
 
 // sendDPD 发送 Dead Peer Detection 请求，返回的 err 仅指打包入列错误
 func (s *Session) sendDPD() error {
-	s.Logger.Debug("发送 DPD 请求 (通过并发窗口队列)")
+	s.Logger.Debug(s.pfx("发送 DPD 请求 (通过并发窗口队列)"))
 	// 滑动窗口已经接管了超时重试惩罚，这句 send 函数其实就是投信箱拿号过程。
 	_, err := s.sendEncryptedWithRetry(nil, ikev2.INFORMATIONAL)
 	return err
@@ -25,7 +25,7 @@ func (s *Session) DPDProbe() error {
 
 // sendDeleteIKE 发送 IKE SA 删除通知
 func (s *Session) sendDeleteIKE() error {
-	s.Logger.Debug("发送 IKE SA Delete 通知")
+	s.Logger.Debug(s.pfx("发送 IKE SA Delete 通知"))
 	del := &ikev2.EncryptedPayloadDelete{
 		ProtocolID: ikev2.ProtoIKE,
 		SPISize:    0,
@@ -41,7 +41,7 @@ func (s *Session) sendDeleteIKE() error {
 
 // sendDeleteChildSA 发送 Child SA 删除通知
 func (s *Session) sendDeleteChildSA(spis []uint32) error {
-	s.Logger.Debug("发送 Child SA Delete 通知", logger.Int("count", len(spis)))
+	s.Logger.Debug(s.pfx("发送 Child SA Delete 通知"), logger.Int("count", len(spis)))
 	if len(spis) == 0 {
 		return nil
 	}
@@ -92,12 +92,12 @@ func (s *Session) StartDPD(interval time.Duration) {
 				}
 
 				// 超过 DPD 间隔无入站流量，发送 DPD 探测
-				s.Logger.Debug("发送 DPD 请求",
+				s.Logger.Debug(s.pfx("发送 DPD 请求"),
 					logger.Duration("lastInbound", diff))
 				if err := s.sendDPD(); err != nil {
 					// sendDPD → sendEncryptedWithRetry 已经做了 5 次指数退避重传
 					// 到达这里说明 ~165s 内全部超时，判定对端不可达
-					s.Logger.Error("DPD 重传耗尽，判定对端不可达",
+					s.Logger.Error(s.pfx("DPD 重传耗尽，判定对端不可达"),
 						logger.Err(err))
 
 					// 暴力掐除：立即发送底层断线回调

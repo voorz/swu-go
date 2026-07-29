@@ -29,7 +29,7 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	var nai string
 	if s.cfg.FastReauthID != "" {
 		nai = s.cfg.FastReauthID
-		s.Logger.Info("IKE_AUTH: 探测到缓存的 FastReauthID 假名，替代 IMSI 暴露身份", logger.String("nai", nai))
+		s.Logger.Info(s.pfx("IKE_AUTH: 探测到缓存的 FastReauthID 假名，替代 IMSI 暴露身份"), logger.String("nai", nai))
 	} else {
 		imsi, err := s.cfg.SIM.GetIMSI()
 		if err != nil || imsi == "" {
@@ -47,7 +47,7 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 		IDData:      []byte(s.cfg.APN),
 		IsInitiator: false,
 	}
-	s.Logger.Debug("IKE_AUTH IDi/IDr 调试",
+	s.Logger.Debug(s.pfx("IKE_AUTH IDi/IDr 调试"),
 		logger.String("idi_type", "RFC822_ADDR"),
 		logger.String("idi_nai", nai),
 		logger.String("idr_type", "FQDN"),
@@ -114,7 +114,7 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	}
 
 	// RFC 5723 Session Resumption
-	s.Logger.Debug("正在组装第一包 IKE_AUTH，已插入 TICKET_REQUEST 凭证索求 Notify")
+	s.Logger.Debug(s.pfx("正在组装第一包 IKE_AUTH，已插入 TICKET_REQUEST 凭证索求 Notify"))
 	ticketReqPayload := &ikev2.EncryptedPayloadNotify{
 		ProtocolID: 0,
 		NotifyType: ikev2.TICKET_REQUEST,
@@ -126,7 +126,7 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 		ProtocolID: 0,
 		NotifyType: ikev2.INITIAL_CONTACT,
 	}
-	s.Logger.Debug("IKE_AUTH 已注入 INITIAL_CONTACT，要求 ePDG 清理旧隧道残留")
+	s.Logger.Debug(s.pfx("IKE_AUTH 已注入 INITIAL_CONTACT，要求 ePDG 清理旧隧道残留"))
 
 	payloads := []ikev2.Payload{idPayload, idrPayload, cpPayload, saPayload, tsPayloadI, tsPayloadR, mobikePayload, ticketReqPayload, initialContactPayload}
 	// DEVICE_IDENTITY notify: default disabled (v1.5.5 baseline device_identity_present=false).
@@ -213,7 +213,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 
 	if pkt.Code == eap.CodeSuccess {
 		// EAP 成功！
-		s.Logger.Debug("收到 EAP Success")
+		s.Logger.Debug(s.pfx("收到 EAP Success"))
 		// 在 IKE_AUTH 中，EAP Success 通常伴随着服务器的 AUTH 载荷。
 		// 这在 session.go 的循环中处理。
 		// 我们这里只返回 nil 以表示不需要 EAP 响应。
@@ -230,7 +230,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		var identity string
 		if s.fastReauthCtx != nil && s.fastReauthCtx.CanUseReauth() {
 			identity = s.fastReauthCtx.ReauthID
-			s.Logger.Info("EAP Identity: 使用缓存的 Fast Re-auth 假名替代 IMSI",
+			s.Logger.Info(s.pfx("EAP Identity: 使用缓存的 Fast Re-auth 假名替代 IMSI"),
 				logger.String("reauthID", identity))
 		} else {
 			imsi, _ := s.cfg.SIM.GetIMSI()
@@ -250,7 +250,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 
 	// 处理 AKA 挑战
 	if pkt.Type == eap.TypeAKA && pkt.Subtype == eap.SubtypeChallenge {
-		s.Logger.Info("收到 EAP-AKA Challenge (4G 模式)")
+		s.Logger.Info(s.pfx("收到 EAP-AKA Challenge (4G 模式)"))
 		attrs, err := eap.ParseAttributes(pkt.Data)
 		if err != nil {
 			return nil, err
@@ -265,7 +265,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		for k := range attrs {
 			keys = append(keys, k)
 		}
-		s.Logger.Debug("Received EAP-AKA Challenge attributes", logger.Any("keys", keys))
+		s.Logger.Debug(s.pfx("收到 EAP-AKA Challenge 属性"), logger.Any("keys", keys))
 
 		if !ok1 || !ok2 {
 			return nil, errors.New("AKA 挑战中缺少 RAND 或 AUTN")
@@ -300,7 +300,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			imsi = s.cfg.IMSI
 		}
 		identity := []byte(buildNAI(imsi, s.cfg))
-		s.Logger.Debug("EAP-AKA MK 推导调试",
+		s.Logger.Debug(s.pfx("EAP-AKA MK 推导调试"),
 			logger.String("imsi", imsi),
 			logger.String("identity", string(identity)),
 			logger.String("ck_hex", hex.EncodeToString(ck)),
@@ -320,7 +320,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			mk = h.Sum(nil)
 
 			keyMat := crypto.NewFIPS1862PRFSHA1(mk).Bytes(nil, 16+16+64)
-			s.Logger.Debug("EAP-AKA 密钥推导",
+			s.Logger.Debug(s.pfx("EAP-AKA 密钥推导"),
 				logger.Int("order", order),
 				logger.String("mk_hex", hex.EncodeToString(mk)),
 				logger.String("kAut_hex", hex.EncodeToString(keyMat[16:32])),
@@ -346,7 +346,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 				kAut = kAutTry
 				msk = mskTry
 				macVerified = true
-				s.Logger.Debug("EAP-AKA 跳过 AT_MAC 验证 (DisableEAPMACValidation=true)",
+				s.Logger.Debug(s.pfx("EAP-AKA 跳过 AT_MAC 验证 (DisableEAPMACValidation=true)"),
 					logger.Int("order", order))
 				break
 			}
@@ -422,7 +422,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			actualLen := int(atNextReauthID.Value[0])<<8 | int(atNextReauthID.Value[1])
 			if actualLen > 0 && actualLen+2 <= len(atNextReauthID.Value) {
 				reauthID := string(atNextReauthID.Value[2 : 2+actualLen])
-				s.Logger.Info("捕获到 EAP-AKA 的快速重连假名 (AT_NEXT_REAUTH_ID)",
+				s.Logger.Info(s.pfx("捕获到 EAP-AKA 的快速重连假名 (AT_NEXT_REAUTH_ID)"),
 					logger.String("reauthID", reauthID))
 
 				// 派生加密密钥 K_encr (MK 的前 16 字节)
@@ -444,7 +444,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 				}
 			} else {
 				// Failed to parse Actual Length or corrupted Value
-				s.Logger.Warn("解析 AT_NEXT_REAUTH_ID 失败：长度校验不通过", logger.Int("valueLen", len(atNextReauthID.Value)), logger.Int("actualLen", actualLen))
+				s.Logger.Warn(s.pfx("解析 AT_NEXT_REAUTH_ID 失败：长度校验不通过"), logger.Int("valueLen", len(atNextReauthID.Value)), logger.Int("actualLen", actualLen))
 			}
 		}
 
@@ -453,7 +453,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 
 	// EAP-AKA' Challenge (RFC 5448, 5G 核心网接入)
 	if pkt.Type == eap.TypeAKAPrime && pkt.Subtype == eap.SubtypeChallenge {
-		s.Logger.Info("收到 EAP-AKA' Challenge (5G 模式)")
+		s.Logger.Info(s.pfx("收到 EAP-AKA' Challenge (5G 模式)"))
 
 		attrs, err := eap.ParseAttributes(pkt.Data)
 		if err != nil {
@@ -470,7 +470,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		for k := range attrs {
 			keys = append(keys, k)
 		}
-		s.Logger.Debug("Received EAP-AKA' Challenge attributes", logger.Any("keys", keys))
+		s.Logger.Debug(s.pfx("收到 EAP-AKA' Challenge 属性"), logger.Any("keys", keys))
 
 		if !ok1 || !ok2 {
 			return nil, errors.New("AKA' Challenge 缺少 RAND 或 AUTN")
@@ -490,7 +490,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		if networkName == "" {
 			networkName = "WLAN" // 默认回退
 		}
-		s.Logger.Info("AKA' 网络名称", logger.String("network_name", networkName))
+		s.Logger.Info(s.pfx("AKA' 网络名称"), logger.String("network_name", networkName))
 
 		// 检查 AT_KDF 值 (期望值 1 = HMAC-SHA-256)
 		kdfID := uint16(1) // 默认接受
@@ -498,7 +498,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			kdfID = uint16(atKdf.Value[0])<<8 | uint16(atKdf.Value[1])
 		}
 		if kdfID != 1 {
-			s.Logger.Warn("AKA' 对端提出非标 KDF，我们只支持 KDF 1 (HMAC-SHA-256)",
+			s.Logger.Warn(s.pfx("AKA' 对端提出非标 KDF，我们只支持 KDF 1 (HMAC-SHA-256)"),
 				logger.Int("kdf_id", int(kdfID)))
 			return nil, fmt.Errorf("unsupported AKA' KDF: %d", kdfID)
 		}
@@ -587,7 +587,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 				actualLen := int(atNextReauth.Value[0])<<8 | int(atNextReauth.Value[1])
 				if actualLen > 0 && actualLen+2 <= len(atNextReauth.Value) {
 					nextReauthID := string(atNextReauth.Value[2 : 2+actualLen])
-					s.Logger.Info("捕获到来自 5G ePDG 的 Fast Re-auth 假名标识，激活免流授权通道", logger.String("NextReauthID", nextReauthID))
+					s.Logger.Info(s.pfx("捕获到来自 5G ePDG 的 Fast Re-auth 假名标识，激活免流授权通道"), logger.String("NextReauthID", nextReauthID))
 					s.fastReauthCtx.SaveReauthData(nextReauthID, mk, nil, kAut)
 					if s.cfg.OnFastReauthUpdate != nil {
 						s.cfg.OnFastReauthUpdate(nextReauthID, mk, kAut, nil)
@@ -639,7 +639,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		macPos := 8 + macOffset + 4
 		copy(eapBytes[macPos:], fullRespMac[:16])
 
-		s.Logger.Info("EAP-AKA' Challenge 响应构建完成 (5G KDF-SHA256)")
+		s.Logger.Info(s.pfx("EAP-AKA' Challenge 响应构建完成 (5G KDF-SHA256)"))
 
 		eapPayload := &ikev2.EncryptedPayloadEAP{EAPMessage: eapBytes}
 		return []ikev2.Payload{eapPayload}, nil
@@ -648,7 +648,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 	// EAP-AKA Fast Re-authentication (RFC 4187 §5.4)
 	if pkt.Type == eap.TypeAKA && pkt.Subtype == eap.SubtypeReauthentication {
 		if s.fastReauthCtx == nil || !s.fastReauthCtx.CanUseReauth() {
-			s.Logger.Warn("收到 EAP-AKA Re-auth 挑战但本地无缓存假名，回退全量认证")
+			s.Logger.Warn(s.pfx("收到 EAP-AKA Re-auth 挑战但本地无缓存假名，回退全量认证"))
 			return nil, fmt.Errorf("fast reauth context not available")
 		}
 
@@ -670,7 +670,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			counterVal = uint16(atCounter.Value[0])<<8 | uint16(atCounter.Value[1])
 		}
 
-		s.Logger.Info("发动 EAP-AKA 快速重认证（免 SIM 读卡）",
+		s.Logger.Info(s.pfx("发动 EAP-AKA 快速重认证（免 SIM 读卡）"),
 			logger.Int("counter", int(counterVal)))
 
 		// 构造 Re-auth 响应: AT_COUNTER + AT_MAC
@@ -720,7 +720,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 	// 与 4G Re-auth 逻辑相同，但使用 SHA-256 派生密钥和计算 MAC
 	if pkt.Type == eap.TypeAKAPrime && pkt.Subtype == eap.SubtypeReauthentication {
 		if s.fastReauthCtx == nil || !s.fastReauthCtx.CanUseReauth() {
-			s.Logger.Warn("收到 EAP-AKA' Re-auth 挑战但本地无缓存假名，回退全量认证")
+			s.Logger.Warn(s.pfx("收到 EAP-AKA' Re-auth 挑战但本地无缓存假名，回退全量认证"))
 			return nil, fmt.Errorf("fast reauth context not available")
 		}
 
@@ -741,7 +741,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			counterVal = uint16(atCounter.Value[0])<<8 | uint16(atCounter.Value[1])
 		}
 
-		s.Logger.Info("发动 EAP-AKA' 快速重认证（5G 模式，免 SIM 读卡）",
+		s.Logger.Info(s.pfx("发动 EAP-AKA' 快速重认证（5G 模式，免 SIM 读卡）"),
 			logger.Int("counter", int(counterVal)))
 
 		respData, err := s.fastReauthCtx.BuildReauthResponse(atNonceS.Value, counterVal)
@@ -810,12 +810,13 @@ func verifyEAPAKAMAC(eapRaw []byte, attrsData []byte, kAut []byte, recvMac []byt
 	mac.Write(tmp)
 	fullMac := mac.Sum(nil)
 
-	// 调试: 打印校验详情
-	fmt.Printf("[AT_MAC_DEBUG] eapRaw_len=%d macPos=%d recvMac=%s calcMac=%s\n",
-		len(eapRaw), macPos,
-		hex.EncodeToString(recvMac),
-		hex.EncodeToString(fullMac[:16]))
-	fmt.Printf("[AT_MAC_DEBUG] eapRaw_hex=%s\n", hex.EncodeToString(eapRaw))
+	// 调试: 打印 MAC 校验详情
+	logger.Debug("[AT_MAC_DEBUG] EAP-AKA MAC 校验",
+		logger.Int("eapRaw_len", len(eapRaw)),
+		logger.Int("macPos", macPos),
+		logger.String("recvMac", hex.EncodeToString(recvMac)),
+		logger.String("calcMac", hex.EncodeToString(fullMac[:16])),
+		logger.String("eapRaw_hex", hex.EncodeToString(eapRaw)))
 
 	if !hmac.Equal(fullMac[:16], recvMac) {
 		return errors.New("EAP-AKA AT_MAC 校验失败")
@@ -858,7 +859,7 @@ func (s *Session) buildEAPAKANotificationResponse(pkt *eap.EAPPacket) ([]ikev2.P
 		return nil, errors.New("EAP-AKA notification 缺少 AT_NOTIFICATION")
 	}
 	macRequired := notifCode&0x4000 == 0
-	s.Logger.Info("收到 EAP-AKA Notification",
+	s.Logger.Info(s.pfx("收到 EAP-AKA Notification"),
 		logger.Int("subtype", int(pkt.Subtype)),
 		logger.Int("code", int(notifCode)),
 		logger.Bool("mac_required", macRequired),
@@ -981,7 +982,7 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 				return fmt.Errorf("IKE_AUTH 返回错误通知: type=%d proto=%d spi=%x data=%x", p.NotifyType, p.ProtocolID, p.SPI, p.NotifyData)
 			}
 			// 打印所有收到的状态类型 Notify，便于调试
-			s.Logger.Debug("IKE_AUTH 收到状态 Notify",
+			s.Logger.Debug(s.pfx("IKE_AUTH 收到状态 Notify"),
 				logger.Int("type", int(p.NotifyType)),
 				logger.Int("dataLen", len(p.NotifyData)),
 				logger.String("dataHex", fmt.Sprintf("%x", p.NotifyData)))
@@ -989,7 +990,7 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 			if p.NotifyType == ikev2.AUTH_LIFETIME && len(p.NotifyData) >= 4 {
 				lifetime := binary.BigEndian.Uint32(p.NotifyData[:4])
 				s.authLifetime = lifetime
-				s.Logger.Info("ePDG 通告 AUTH_LIFETIME",
+				s.Logger.Info(s.pfx("ePDG 通告 AUTH_LIFETIME"),
 					logger.Uint32("seconds", lifetime),
 					logger.String("duration", (time.Duration(lifetime)*time.Second).String()))
 			}
@@ -997,7 +998,7 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 			if p.NotifyType == ikev2.REDIRECT {
 				addr, err := ParseRedirectData(p.NotifyData)
 				if err != nil {
-					s.Logger.Warn("解析 REDIRECT 数据失败", logger.Err(err))
+					s.Logger.Warn(s.pfx("解析 REDIRECT 数据失败"), logger.Err(err))
 				} else {
 					return &RedirectError{NewAddr: addr}
 				}
@@ -1005,7 +1006,7 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 			// RFC 4555: MOBIKE_SUPPORTED
 			if p.NotifyType == ikev2.MOBIKE_SUPPORTED {
 				s.mobikeSupported = true
-				s.Logger.Info("ePDG 支持 MOBIKE")
+				s.Logger.Info(s.pfx("ePDG 支持 MOBIKE"))
 			}
 			// RFC 5723: Session Resumption
 			if p.NotifyType == ikev2.TICKET_OPAQUE && len(p.NotifyData) > 0 {
@@ -1014,7 +1015,7 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 				if s.Keys != nil && len(s.Keys.SK_d) > 0 {
 					s.resumeOldSKd = make([]byte, len(s.Keys.SK_d))
 					copy(s.resumeOldSKd, s.Keys.SK_d)
-					s.Logger.Info("成功提取到会话恢复车票", logger.Int("ticketLen", len(s.resumeTicket)))
+					s.Logger.Info(s.pfx("成功提取到会话恢复车票"), logger.Int("ticketLen", len(s.resumeTicket)))
 					if s.cfg.OnTicketUpdate != nil {
 						s.cfg.OnTicketUpdate(s.resumeTicket, s.resumeOldSKd)
 					}
@@ -1055,14 +1056,14 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 		// ESN Transform: ID=1 表示使用 ESN，ID=0 表示不使用
 		if t.Type == ikev2.TransformTypeESN && t.ID == 1 {
 			s.childESN = true
-			s.Logger.Info("ePDG 选择了 ESN (扩展序列号)")
+			s.Logger.Info(s.pfx("ePDG 选择了 ESN (扩展序列号)"))
 		}
 	}
 	if encrID == 0 {
 		return errors.New("IKE_AUTH 最终响应缺少加密算法选择")
 	}
 
-	s.Logger.Info("ePDG_SA_AUTH: IPsec ESP (Child SA) 算法协商成功",
+	s.Logger.Info(s.pfx("ePDG_SA_AUTH: IPsec ESP (Child SA) 算法协商成功"),
 		logger.String("encr", ikev2.EncrToString(encrID)),
 		logger.String("integ", ikev2.IntegToString(integID)),
 		logger.Bool("esn", s.childESN),
@@ -1161,7 +1162,7 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 				}
 				types = append(types, int(a.Type))
 			}
-			s.Logger.Debug("CP 属性类型", logger.Any("types", types))
+			s.Logger.Debug(s.pfx("CP 属性类型"), logger.Any("types", types))
 		}
 		s.cpConfig = ikev2.ParseCPConfig(cpPayload)
 		if s.cpConfig != nil {
@@ -1183,7 +1184,7 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 			if len(s.cpConfig.IPv6Addresses) > 0 && s.cpConfig.IPv6Addresses[0] != nil {
 				ipv6 = s.cpConfig.IPv6Addresses[0].String()
 			}
-			s.Logger.Debug("CP 配置已下发",
+			s.Logger.Debug(s.pfx("CP 配置已下发"),
 				logger.String("ipv4", ipv4),
 				logger.String("ipv6", ipv6),
 				logger.Int("dns_v4", len(s.cpConfig.IPv4DNS)),
@@ -1205,7 +1206,7 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 		s.childOutPolicies = append(s.childOutPolicies, childOutPolicy{saOut: s.ChildSAOut, tsr: s.tsr})
 	}
 
-	s.Logger.Debug("Child SA 已建立", logger.Uint32("localSPI", s.childSPI), logger.Uint32("remoteSPI", remoteSPI))
+	s.Logger.Debug(s.pfx("Child SA 已建立"), logger.Uint32("localSPI", s.childSPI), logger.Uint32("remoteSPI", remoteSPI))
 	return nil
 }
 

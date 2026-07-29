@@ -24,12 +24,12 @@ func (s *Session) RekeyIKESA() error {
 
 	// 冷却期检查
 	if !s.lastRekeyTime.IsZero() && time.Since(s.lastRekeyTime) < 30*time.Second {
-		s.Logger.Debug("IKE Rekey 冷却期内，跳过",
+		s.Logger.Debug(s.pfx("IKE Rekey 冷却期内，跳过"),
 			logger.Duration("sinceLast", time.Since(s.lastRekeyTime)))
 		return nil
 	}
 
-	s.Logger.Info("开始 IKE SA Rekey")
+	s.Logger.Info(s.pfx("开始 IKE SA Rekey"))
 
 	// 1. 生成新 Nonce
 	newNonce, err := crypto.RandomBytes(32)
@@ -91,7 +91,7 @@ func (s *Session) RekeyIKESA() error {
 		return fmt.Errorf("IKE SA Rekey CREATE_CHILD_SA 发送失败: %v", err)
 	}
 
-	s.Logger.Info("IKE SA Rekey 收到响应", logger.Int("len", len(respData)))
+	s.Logger.Info(s.pfx("IKE SA Rekey 收到响应"), logger.Int("len", len(respData)))
 
 	// 9. 处理响应
 	return s.handleRekeyIKESAResp(respData, newNonce, newDH, newSPIi, oldSKd, oldSPIi, oldSPIr)
@@ -163,7 +163,7 @@ func (s *Session) handleRekeyIKESAResp(
 
 	// 用旧密钥发送 INFORMATIONAL DELETE 通知 ePDG 旧 IKE SA 废弃
 	// 参考 strongSwan ike_rekey.c:727 — DELETE 必须在旧 SA 上发送，且需等待响应
-	s.Logger.Debug("发送旧 IKE SA DELETE 通知（使用旧密钥）",
+	s.Logger.Debug(s.pfx("发送旧 IKE SA DELETE 通知（使用旧密钥）"),
 		logger.Uint64("oldSPIi", oldSPIi),
 		logger.Uint64("oldSPIr", oldSPIr))
 	del := &ikev2.EncryptedPayloadDelete{
@@ -173,9 +173,9 @@ func (s *Session) handleRekeyIKESAResp(
 		SPIs:       nil,
 	}
 	if _, err := s.sendEncryptedWithRetry([]ikev2.Payload{del}, ikev2.INFORMATIONAL); err != nil {
-		s.Logger.Warn("发送旧 IKE SA DELETE 失败（继续切换）", logger.Err(err))
+		s.Logger.Warn(s.pfx("发送旧 IKE SA DELETE 失败（继续切换）"), logger.Err(err))
 	} else {
-		s.Logger.Info("旧 IKE SA DELETE 确认完成")
+		s.Logger.Info(s.pfx("旧 IKE SA DELETE 确认完成"))
 	}
 
 	// 原子切换 IKE SA 状态（DELETE 发送后再切换）
@@ -185,7 +185,7 @@ func (s *Session) handleRekeyIKESAResp(
 	s.SequenceNumber.Store(0) // 新 IKE SA 的 MsgID 从 0 开始
 	s.DH = newDH         // 更新 DH 状态
 
-	s.Logger.Info("IKE SA Rekey 成功",
+	s.Logger.Info(s.pfx("IKE SA Rekey 成功"),
 		logger.Uint64("oldSPIi", oldSPIi),
 		logger.Uint64("oldSPIr", oldSPIr),
 		logger.Uint64("newSPIi", newSPIi),
@@ -205,7 +205,7 @@ func (s *Session) handleRekeyIKESAResp(
 
 // HandleRekeyIKESARequest 处理对端发起的 IKE SA Rekey 请求
 func (s *Session) HandleRekeyIKESARequest(msgID uint32, payloads []ikev2.Payload) error {
-	s.Logger.Info("收到 IKE SA Rekey 请求")
+	s.Logger.Info(s.pfx("收到 IKE SA Rekey 请求"))
 
 	var reqSA *ikev2.EncryptedPayloadSA
 	var reqNonce []byte
@@ -285,7 +285,7 @@ func (s *Session) HandleRekeyIKESARequest(msgID uint32, payloads []ikev2.Payload
 		return fmt.Errorf("发送 IKE SA Rekey 响应失败: %v", err)
 	}
 
-	s.Logger.Info("IKE SA Rekey 响应已发送")
+	s.Logger.Info(s.pfx("IKE SA Rekey 响应已发送"))
 
 	// 7. 派生新密钥
 	// SKEYSEED = prf(SK_d_old, g^ir_new | Ni | Nr)
@@ -313,7 +313,7 @@ func (s *Session) HandleRekeyIKESARequest(msgID uint32, payloads []ikev2.Payload
 	s.lastRekeyTime = time.Now()
 	s.rekeyMu.Unlock()
 
-	s.Logger.Info("被动 IKE SA Rekey 完成，密钥已更新",
+	s.Logger.Info(s.pfx("被动 IKE SA Rekey 完成，密钥已更新"),
 		logger.Uint64("newSPIi", peerSPI),
 		logger.Uint64("newSPIr", newSPIr))
 

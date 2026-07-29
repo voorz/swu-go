@@ -97,4 +97,9 @@ type Config struct {
 	// DeviceModel is a carrier-specific device model hint used for
 	// identity derivation (e.g. "rmx3366", "iphone15,4").
 	DeviceModel string
+
+	// DeviceID is the device identifier used for log prefixing.
+	DeviceID string
+	// TraceID is the request trace identifier used for log correlation.
+	TraceID string
 }

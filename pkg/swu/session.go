@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"sync/atomic"
 
 	"sync"
@@ -148,6 +149,9 @@ type Session struct {
 
 	ws *WiresharkDebugger
 
+	deviceID string
+	traceID  string
+
 	innerTx     chan []byte
 	innerRx     chan []byte
 	innerClosed chan struct{}
@@ -180,7 +184,7 @@ var ErrReauth = errors.New("reauthentication triggered")
 func NewSession(cfg *Config, l *zap.Logger) *Session {
 	if l == nil {
 		l = logger.Get() // Fallback to global logger if nil provided
-		l.Warn("NewSession received nil logger, falling back to global logger")
+		l.Warn(fmt.Sprintf("[%s] NewSession 收到 nil logger，回退到全局 logger", strings.TrimSpace(cfg.DeviceID)))
 	}
 
 	// 生成随机 SPIi
@@ -208,7 +212,17 @@ func NewSession(cfg *Config, l *zap.Logger) *Session {
 		resumeTicket:     cfg.ResumeTicket, // 从外级上下文挂载可能传下来的“前世”车票
 		resumeOldSKd:     cfg.ResumeOldSKd,
 		fastReauthCtx:    initFastReauthCtx(cfg),
+		deviceID:         strings.TrimSpace(cfg.DeviceID),
+		traceID:          strings.TrimSpace(cfg.TraceID),
 	}
+}
+
+// pfx 为日志消息添加 [deviceID] 前缀
+func (s *Session) pfx(msg string) string {
+	if s.deviceID != "" {
+		return fmt.Sprintf("[%s] %s", s.deviceID, msg)
+	}
+	return msg
 }
 
 // initFastReauthCtx 从外层 Config 恢复快速重认证上下文
@@ -234,7 +248,7 @@ func (s *Session) Connect(ctx context.Context) error {
 
 		// 检查 Reauth 信号
 		if errors.Is(err, ErrReauth) {
-			s.Logger.Info("Reauthentication: 重新开始连接流程")
+			s.Logger.Info(s.pfx("Reauthentication: 重新开始连接流程"))
 			// 重置 Redirect 计数，因为这是全新的连接尝试
 			redirectCount = 0
 			// 不关闭 Socket? connectOnce 已经负责清理了上一轮的资源
@@ -248,7 +262,7 @@ func (s *Session) Connect(ctx context.Context) error {
 				return fmt.Errorf("exceeded max redirects (%d)", maxRedirects)
 			}
 			redirectCount++
-			s.Logger.Info("收到 REDIRECT 请求，正在重连",
+			s.Logger.Info(s.pfx("收到 REDIRECT 请求，正在重连"),
 				logger.String("newAddr", redir.NewAddr),
 				logger.Int("attempt", redirectCount))
 
@@ -264,7 +278,7 @@ func (s *Session) connectOnce() error {
 	handshakeStart := time.Now()
 	var err error
 
-	s.Logger.Debug("初始化滑动窗口队列任务调度器 TaskManager", logger.Int("windowSize", 5))
+	s.Logger.Debug(s.pfx("初始化滑动窗口队列任务调度器 TaskManager"), logger.Int("windowSize", 5))
 
 	// 在 Socket 启动前暂不配置 sendFunc，等到下面 socket.Start() 之后重载
 	s.taskMgr = NewTaskManager(s.ctx, nil, 5, nil)
@@ -312,11 +326,11 @@ func (s *Session) connectOnce() error {
 		LocalAddrString() string
 		RemoteAddrString() string
 	}); ok {
-		s.Logger.Debug("正在连接到 ePDG",
+		s.Logger.Debug(s.pfx("正在连接到 ePDG"),
 			logger.String("remote", sm.RemoteAddrString()),
 			logger.String("local", sm.LocalAddrString()))
 	} else {
-		s.Logger.Debug("正在连接到 ePDG", logger.String("addr", s.cfg.EpDGAddr))
+		s.Logger.Debug(s.pfx("正在连接到 ePDG"), logger.String("addr", s.cfg.EpDGAddr))
 	}
 
 	go s.logSessionStats(60 * time.Second)
@@ -324,13 +338,13 @@ func (s *Session) connectOnce() error {
 	resumed := false
 	// 检查是否有存活的 Ticket，实施 RFC 5723 快速恢复
 	if len(s.resumeTicket) > 0 && len(s.resumeOldSKd) > 0 {
-		s.Logger.Info("察觉到 Ticket 车票缓存，尝试发动 IKEv2 Session Resumption 瞬时重连...")
+		s.Logger.Info(s.pfx("察觉到 Ticket 车票缓存，尝试发动 IKEv2 Session Resumption 瞬时重连..."))
 		err = s.performSessionResumption()
 		if err == nil {
 			// 恢复成功，Child SA 以及内部配置已双双建立
 			resumed = true
 		} else {
-			s.Logger.Warn("Session Resumption 恢复尝试失败，退化为完整全量握手", logger.Err(err))
+			s.Logger.Warn(s.pfx("Session Resumption 恢复尝试失败，退化为完整全量握手"), logger.Err(err))
 			// 消除失效的车票
 			s.resumeTicket = nil
 			s.resumeOldSKd = nil
@@ -373,7 +387,7 @@ func (s *Session) connectOnce() error {
 			break
 		}
 
-		s.Logger.Debug("IKE_SA_INIT 完成，密钥已生成")
+		s.Logger.Debug(s.pfx("IKE_SA_INIT 完成，密钥已生成"))
 		s.SequenceNumber.Store(1)
 
 		s.ws, err = NewWiresharkDebugger(s.cfg.EnableWiresharkKeyLog, s.cfg.WiresharkKeyLogPath)
@@ -421,11 +435,11 @@ func (s *Session) connectOnce() error {
 				// 检查 AUTH (成功)
 				if _, ok := p.(*ikev2.EncryptedPayloadAuth); ok {
 					// EAP Success 通常随服务器的 AUTH 一起到来
-					s.Logger.Debug("收到 AUTH 载荷")
+					s.Logger.Debug(s.pfx("收到 AUTH 载荷"))
 				}
 				// 检查 CP (配置)
 				if _, ok := p.(*ikev2.EncryptedPayloadCP); ok {
-					s.Logger.Debug("收到配置载荷")
+					s.Logger.Debug(s.pfx("收到配置载荷"))
 					// 解析 IP 和 DNS
 				}
 			}
@@ -463,12 +477,12 @@ func (s *Session) connectOnce() error {
 				return fmt.Errorf("对端未返回 EAP 载荷(payloadTypes=%v)，无法继续 EAP-AKA", types)
 			}
 
-			s.Logger.Debug("握手循环完成")
+			s.Logger.Debug(s.pfx("握手循环完成"))
 			break
 		}
 
 		if err := s.handleIKEAuthFinalResp(respData); err != nil {
-			s.Logger.Debug("EAP 成功响应未完成 CHILD_SA，尝试发送最终 AUTH")
+			s.Logger.Debug(s.pfx("EAP 成功响应未完成 CHILD_SA，尝试发送最终 AUTH"))
 			finalPayloads, err := s.buildIKEAuthFinalPayloads()
 			if err != nil {
 				return fmt.Errorf("failed to build final AUTH: %v", err)
@@ -483,7 +497,7 @@ func (s *Session) connectOnce() error {
 		}
 	} // End of if !resumed block
 
-	s.Logger.Info("会话已建立", logger.Duration("handshake", time.Since(handshakeStart)))
+	s.Logger.Info(s.pfx("会话已建立"), logger.Duration("handshake", time.Since(handshakeStart)))
 
 	// 4. 设置 IPSec 数据平面
 	if s.cfg.EnableDriver {
@@ -517,7 +531,7 @@ func (s *Session) connectOnce() error {
 		ikeInterval = time.Duration(float64(s.authLifetime)*0.8) * time.Second
 		// Child Rekey 间隔 = AUTH_LIFETIME 的 87.5%，在 IKE Rekey 前先刷新 ESP
 		childInterval = time.Duration(float64(s.authLifetime)*0.875) * time.Second
-		s.Logger.Info("根据 AUTH_LIFETIME 动态调整 Rekey 间隔",
+		s.Logger.Info(s.pfx("根据 AUTH_LIFETIME 动态调整 Rekey 间隔"),
 			logger.Uint32("authLifetime", s.authLifetime),
 			logger.Duration("ikeRekey", ikeInterval),
 			logger.Duration("childRekey", childInterval))
@@ -546,12 +560,12 @@ func (s *Session) connectOnce() error {
 	// 等待 context 取消 (优雅关闭) 或 Reauth 触发
 	select {
 	case <-s.ctx.Done():
-		s.Logger.Info("收到关闭信号，正在清理")
+		s.Logger.Info(s.pfx("收到关闭信号，正在清理"))
 	case <-s.reauthTrigger:
-		s.Logger.Info("触发 IKE Reauthentication，正在断开旧连接")
+		s.Logger.Info(s.pfx("触发 IKE Reauthentication，正在断开旧连接"))
 		// 发送 Delete 通知
 		if err := s.sendDeleteIKE(); err != nil {
-			s.Logger.Warn("发送 Delete 通知失败", logger.Err(err))
+			s.Logger.Warn(s.pfx("发送 Delete 通知失败"), logger.Err(err))
 		}
 		// 返回 ErrReauth 信号
 		err = ErrReauth
@@ -560,7 +574,7 @@ func (s *Session) connectOnce() error {
 	if err != ErrReauth {
 		// 仅在非 Reauth（正常关闭）时发送 Delete
 		if err := s.sendDeleteIKE(); err != nil {
-			s.Logger.Warn("发送 Delete 通知失败", logger.Err(err))
+			s.Logger.Warn(s.pfx("发送 Delete 通知失败"), logger.Err(err))
 		}
 	}
 
@@ -583,7 +597,7 @@ func (s *Session) Reauthenticate() {
 }
 
 func (s *Session) startIKEReauthTimer(interval time.Duration) {
-	s.Logger.Info("启动 IKE SA Reauth 定时器", logger.Duration("interval", interval))
+	s.Logger.Info(s.pfx("启动 IKE SA Reauth 定时器"), logger.Duration("interval", interval))
 	go func() {
 		// 添加抖动 (0-10%)
 		jitter := time.Duration(rand.Int63n(int64(interval / 10)))
@@ -609,24 +623,24 @@ func (s *Session) WaitDone() {
 
 func (s *Session) cleanupNetworkConfig() {
 	s.closeNetstackDataplane()
-	s.Logger.Debug("开始清理网络配置", logger.Int("count", len(s.netUndos)))
+	s.Logger.Debug(s.pfx("开始清理网络配置"), logger.Int("count", len(s.netUndos)))
 	for i := len(s.netUndos) - 1; i >= 0; i-- {
-		s.Logger.Debug("执行清理操作", logger.Int("index", i))
+		s.Logger.Debug(s.pfx("执行清理操作"), logger.Int("index", i))
 		if err := s.netUndos[i](); err != nil {
-			s.Logger.Warn("回滚网络配置失败", logger.Err(err))
+			s.Logger.Warn(s.pfx("回滚网络配置失败"), logger.Err(err))
 		}
 	}
 	s.netUndos = nil
 
 	// 在清理的最后，加入全局扫描与无情抹除，确保存留的因为 rekey 生成的新 SA 都一并被干掉而不会堵塞下一次建连
 	if s.xfrmMgr != nil && s.xfrmLocalIP != nil {
-		s.Logger.Debug("彻底肃清设备遗留的所有 XFRM SA 缓存...")
+		s.Logger.Debug(s.pfx("彻底肃清设备遗留的所有 XFRM SA 缓存..."))
 		s.xfrmMgr.FlushByIP(s.xfrmLocalIP)
 		// 配合 Linux xfrm 机制：可以直接 flush
-		s.Logger.Debug("由于安全起见，本 ID 对应的资源已肃清.")
+		s.Logger.Debug(s.pfx("由于安全起见，本 ID 对应的资源已肃清."))
 	}
 
-	s.Logger.Info("网络配置清理完成")
+	s.Logger.Info(s.pfx("网络配置清理完成"))
 }
 
 func (s *Session) logSessionStats(interval time.Duration) {
@@ -681,13 +695,13 @@ func (s *Session) startNetEventMonitor() {
 				if !ok {
 					return
 				}
-				s.Logger.Debug("收到底层网络事件", logger.Any("event", ev))
+				s.Logger.Debug(s.pfx("收到底层网络事件"), logger.Any("event", ev))
 
 				switch ev.Type {
 				case ipsec.EventPathMTU:
 					// 收到 ICMP Fragmentation Needed，自动调低 PMTU
 					if ev.PMTU < s.ikeFragmentMTU && ev.PMTU >= 500 {
-						s.Logger.Warn("收到 ICMP Frag Needed，动态调低 IKE PMTU",
+						s.Logger.Warn(s.pfx("收到 ICMP Frag Needed，动态调低 IKE PMTU"),
 							logger.Uint32("old", s.ikeFragmentMTU),
 							logger.Uint32("new", ev.PMTU))
 						s.ikeFragmentMTU = ev.PMTU
@@ -695,17 +709,17 @@ func (s *Session) startNetEventMonitor() {
 					}
 				case ipsec.EventNetworkDown:
 					// ICMP Host/Net Unreachable，提前触发生态保护，绕开死等 keepalive
-					s.Logger.Warn("基站/路由器发来链路断开 ICMP (Host Unreachable)，触发 DPD/MOBIKE 预判探活",
+					s.Logger.Warn(s.pfx("基站/路由器发来链路断开 ICMP (Host Unreachable)，触发 DPD/MOBIKE 预判探活"),
 						logger.String("reason", ev.Reason))
 					// 直接发起一次 DPD 加速验证，如果在发 DPD 期间发生漂移将直接救活。
 					go func() {
 						if err := s.sendDPD(); err != nil {
-							s.Logger.Warn("智能 DPD 探测失败", logger.Err(err))
+							s.Logger.Warn(s.pfx("智能 DPD 探测失败"), logger.Err(err))
 						}
 					}()
 				case ipsec.EventNATPortChanged:
 					// NAT-T 端口漂移：家庭路由器 NAT 映射翻新，底层已自动跟随
-					s.Logger.Info("NAT-T 端口悬浮：远端源端口已被底层自动跟随，隧道保持在线",
+					s.Logger.Info(s.pfx("NAT-T 端口悬浮：远端源端口已被底层自动跟随，隧道保持在线"),
 						logger.Int("old_port", ev.OldPort),
 						logger.Int("new_port", ev.NewPort))
 				}
@@ -758,18 +772,18 @@ func (s *Session) startNATKeepalive(interval time.Duration) {
 
 			if keepaliveDPDMargin > 0 && diff > interval+keepaliveDPDMargin {
 				// strongSwan: 超出 keepalive + dpd_margin → 改发 DPD（而非 keepalive）
-				s.Logger.Debug("NAT keepalive 超时过久，改发 DPD",
+				s.Logger.Debug(s.pfx("NAT keepalive 超时过久，改发 DPD"),
 					logger.Duration("diff", diff))
 				go func() {
 					if err := s.sendDPD(); err != nil {
-						s.Logger.Warn("DPD 请求失败（由 keepalive 升级触发）", logger.Err(err))
+						s.Logger.Warn(s.pfx("DPD 请求失败（由 keepalive 升级触发）"), logger.Err(err))
 					}
 				}()
 				diff = 0
 			} else if diff >= interval {
 				// 正常 keepalive
 				if err := sender.SendNATKeepalive(); err != nil {
-					s.Logger.Debug("NAT keepalive 发送失败", logger.Err(err))
+					s.Logger.Debug(s.pfx("NAT keepalive 发送失败"), logger.Err(err))
 				} else {
 					s.lastOutboundTime = time.Now()
 				}
@@ -823,19 +837,19 @@ func (s *Session) startIKESARekeyTimer(interval time.Duration) {
 				}
 				jitter = time.Duration(rand.Int63n(int64(ikeRekeyJitter))) * time.Second
 				timer.Reset(interval - jitter)
-				s.Logger.Debug("IKE SA Rekey 成功，Timer 已重置并携带 Jitter",
+				s.Logger.Debug(s.pfx("IKE SA Rekey 成功，Timer 已重置并携带 Jitter"),
 					logger.Duration("interval", interval-jitter))
 			case <-timer.C:
-				s.Logger.Info("IKE SA 生命周期即将到期，发起主动 IKE SA Rekey",
+				s.Logger.Info(s.pfx("IKE SA 生命周期即将到期，发起主动 IKE SA Rekey"),
 					logger.Duration("interval", interval))
 				if err := s.RekeyIKESA(); err != nil {
 					failCount++
-					s.Logger.Warn("IKE SA Rekey 失败",
+					s.Logger.Warn(s.pfx("IKE SA Rekey 失败"),
 						logger.Err(err),
 						logger.Int("连续失败", failCount))
 
 					if failCount >= rekeyMaxFail {
-						s.Logger.Error("IKE SA Rekey 连续失败达上限，触发隧道重建",
+						s.Logger.Error(s.pfx("IKE SA Rekey 连续失败达上限，触发隧道重建"),
 							logger.Int("maxFail", rekeyMaxFail))
 						if s.OnSessionDown != nil {
 							go s.OnSessionDown()
@@ -889,19 +903,19 @@ func (s *Session) startChildSARekeyTimer(interval time.Duration) {
 				}
 				jitter = time.Duration(rand.Int63n(int64(childRekeyJitter))) * time.Second
 				timer.Reset(interval - jitter)
-				s.Logger.Debug("Child SA Rekey Timer 已重置",
+				s.Logger.Debug(s.pfx("Child SA Rekey Timer 已重置"),
 					logger.Duration("interval", interval-jitter))
 			case <-timer.C:
-				s.Logger.Info("Child SA 生命周期到期，发起主动 Child SA Rekey",
+				s.Logger.Info(s.pfx("Child SA 生命周期到期，发起主动 Child SA Rekey"),
 					logger.Duration("interval", interval))
 				if err := s.RekeyChildSA(); err != nil {
 					failCount++
-					s.Logger.Warn("Child SA Rekey 失败",
+					s.Logger.Warn(s.pfx("Child SA Rekey 失败"),
 						logger.Err(err),
 						logger.Int("连续失败", failCount))
 
 					if failCount >= rekeyMaxFail {
-						s.Logger.Error("Child SA Rekey 连续失败达上限，触发隧道重建",
+						s.Logger.Error(s.pfx("Child SA Rekey 连续失败达上限，触发隧道重建"),
 							logger.Int("maxFail", rekeyMaxFail))
 						if s.OnSessionDown != nil {
 							go s.OnSessionDown()
@@ -935,11 +949,11 @@ func (s *Session) startXFRMExpireMonitor() {
 	errCh := make(chan error, 1)
 
 	if err := netlink.XfrmMonitor(ch, done, errCh, nl.XFRM_MSG_EXPIRE); err != nil {
-		s.Logger.Warn("启动 XFRM Expire 监听失败", logger.Err(err))
+		s.Logger.Warn(s.pfx("启动 XFRM Expire 监听失败"), logger.Err(err))
 		return
 	}
 
-	s.Logger.Info("XFRM SA Expire 监听已启动")
+	s.Logger.Info(s.pfx("XFRM SA Expire 监听已启动"))
 
 	go func() {
 		defer close(done)
@@ -949,7 +963,7 @@ func (s *Session) startXFRMExpireMonitor() {
 			case <-s.ctx.Done():
 				return
 			case err := <-errCh:
-				s.Logger.Warn("XFRM 监听错误", logger.Err(err))
+				s.Logger.Warn(s.pfx("XFRM 监听错误"), logger.Err(err))
 				return
 			case msg, ok := <-ch:
 				if !ok {
@@ -974,7 +988,7 @@ func (s *Session) startXFRMExpireMonitor() {
 				}
 
 				if expire.Hard {
-					s.Logger.Warn("XFRM SA Hard Expire，触发隧道重建",
+					s.Logger.Warn(s.pfx("XFRM SA Hard Expire，触发隧道重建"),
 						logger.Uint32("spi", spi))
 					if s.OnSessionDown != nil {
 						go s.OnSessionDown()
@@ -983,11 +997,11 @@ func (s *Session) startXFRMExpireMonitor() {
 					}
 				} else {
 					// Soft Expire 触发主动 Child SA Rekey
-					s.Logger.Info("XFRM SA Soft Expire，触发主动 Child SA Rekey",
+					s.Logger.Info(s.pfx("XFRM SA Soft Expire，触发主动 Child SA Rekey"),
 						logger.Uint32("spi", spi))
 					go func() {
 						if err := s.RekeyChildSA(); err != nil {
-							s.Logger.Warn("Soft Expire 触发 Rekey 失败", logger.Err(err))
+							s.Logger.Warn(s.pfx("Soft Expire 触发 Rekey 失败"), logger.Err(err))
 						}
 					}()
 				}
@@ -1037,7 +1051,7 @@ func (s *Session) setupDataPlane() error {
 		}
 		if mtu > 0 {
 			if err := tx.SetMTU(s.tun.DeviceName(), mtu); err != nil {
-				s.Logger.Warn("设置 TUN MTU 失败，将继续", logger.String("iface", s.tun.DeviceName()), logger.Int("mtu", mtu), logger.Err(err))
+				s.Logger.Warn(s.pfx("设置 TUN MTU 失败，将继续"), logger.String("iface", s.tun.DeviceName()), logger.Int("mtu", mtu), logger.Err(err))
 			}
 		}
 		tx.Commit()
@@ -1056,7 +1070,7 @@ func (s *Session) setupDataPlane() error {
 		}
 		if mtu > 0 {
 			if err := s.net.SetMTU(s.tun.DeviceName(), mtu); err != nil {
-				s.Logger.Warn("设置 TUN MTU 失败，将继续", logger.String("iface", s.tun.DeviceName()), logger.Int("mtu", mtu), logger.Err(err))
+				s.Logger.Warn(s.pfx("设置 TUN MTU 失败，将继续"), logger.String("iface", s.tun.DeviceName()), logger.Int("mtu", mtu), logger.Err(err))
 			}
 		}
 	}
@@ -1073,7 +1087,7 @@ func (s *Session) setupDataPlane() error {
 // setupXFRMDataPlane 配置 XFRM 模式的数据平面
 // 创建 XFRM Interface、安装 SA 和 SP，配置 ESP-in-UDP 封装
 func (s *Session) setupXFRMDataPlane() error {
-	s.Logger.Debug("设置 XFRMI 数据平面")
+	s.Logger.Debug(s.pfx("设置 XFRMI 数据平面"))
 
 	xfrmMgr := driver.NewXFRMManager()
 	s.xfrmMgr = xfrmMgr
@@ -1096,16 +1110,16 @@ func (s *Session) setupXFRMDataPlane() error {
 
 		// 如果绑定的是 0.0.0.0，需要探测实际出口 IP 用于 SA Src
 		if localIP.IsUnspecified() {
-			s.Logger.Debug("LocalIP 未指定 (0.0.0.0)，尝试探测实际出口 IP", logger.String("remote", s.cfg.EpDGAddr))
+			s.Logger.Debug(s.pfx("LocalIP 未指定 (0.0.0.0)，尝试探测实际出口 IP"), logger.String("remote", s.cfg.EpDGAddr))
 			// 使用 UDP 探测路由出口 IP
 			addr := net.JoinHostPort(s.cfg.EpDGAddr, fmt.Sprintf("%d", remotePort))
 			conn, err := net.Dial("udp", addr)
 			if err == nil {
 				localIP = conn.LocalAddr().(*net.UDPAddr).IP
 				conn.Close()
-				s.Logger.Debug("探测到实际出口 IP", logger.String("ip", localIP.String()))
+				s.Logger.Debug(s.pfx("探测到实际出口 IP"), logger.String("ip", localIP.String()))
 			} else {
-				s.Logger.Warn("探测实际出口 IP 失败，将使用 0.0.0.0 (可能导致 XFRM 封装失败)", logger.Err(err))
+				s.Logger.Warn(s.pfx("探测实际出口 IP 失败，将使用 0.0.0.0 (可能导致 XFRM 封装失败)"), logger.Err(err))
 			}
 		}
 	} else {
@@ -1138,7 +1152,7 @@ func (s *Session) setupXFRMDataPlane() error {
 						if ipnet, ok := addr.(*net.IPNet); ok {
 							if ipnet.IP.Equal(localIP) {
 								underlyingIdx = iface.Index
-								s.Logger.Debug("绑定底层物理接口", logger.String("iface", iface.Name), logger.Int("idx", iface.Index))
+								s.Logger.Debug(s.pfx("绑定底层物理接口"), logger.String("iface", iface.Name), logger.Int("idx", iface.Index))
 								break
 							}
 						}
@@ -1165,7 +1179,7 @@ func (s *Session) setupXFRMDataPlane() error {
 	// 确保 Socket 启用 UDP 封装 (XFRM 需要)
 	if sm, ok := s.socket.(*ipsec.SocketManager); ok {
 		if err := sm.SetUDPEncap(); err != nil {
-			s.Logger.Warn("设置 Socket UDP Encap 失败", logger.Err(err))
+			s.Logger.Warn(s.pfx("设置 Socket UDP Encap 失败"), logger.Err(err))
 		}
 	}
 
@@ -1259,7 +1273,7 @@ func (s *Session) setupXFRMDataPlane() error {
 		return xfrmMgr.DelSA(inSACfg.SPI, inSACfg.Src, inSACfg.Dst, inSACfg.Proto)
 	})
 
-	s.Logger.Debug("XFRM SA 已安装",
+	s.Logger.Debug(s.pfx("XFRM SA 已安装"),
 		logger.Uint32("outSPI", outSACfg.SPI),
 		logger.Uint32("inSPI", inSACfg.SPI),
 		logger.String("local", localIP.String()),
@@ -1323,7 +1337,7 @@ func (s *Session) setupXFRMDataPlane() error {
 		Ifid:      int(xfrmIfID),
 	}
 	if err := xfrmMgr.AddSP(fwdSP4); err != nil {
-		s.Logger.Warn("添加 FWD SP 失败 (非致命)", logger.Err(err))
+		s.Logger.Warn(s.pfx("添加 FWD SP 失败 (非致命)"), logger.Err(err))
 	} else {
 		s.netUndos = append(s.netUndos, func() error { return xfrmMgr.DelSP(fwdSP4) })
 	}
@@ -1338,7 +1352,7 @@ func (s *Session) setupXFRMDataPlane() error {
 	}
 	// Panic removed
 	if err := xfrmMgr.AddSP(outSP6); err != nil {
-		s.Logger.Warn("添加 IPv6 出站 SP 失败 (非致命)", logger.Err(err))
+		s.Logger.Warn(s.pfx("添加 IPv6 出站 SP 失败 (非致命)"), logger.Err(err))
 	} else {
 		s.netUndos = append(s.netUndos, func() error { return xfrmMgr.DelSP(outSP6) })
 	}
@@ -1351,12 +1365,12 @@ func (s *Session) setupXFRMDataPlane() error {
 		Ifid:    int(xfrmIfID),
 	}
 	if err := xfrmMgr.AddSP(inSP6); err != nil {
-		s.Logger.Warn("添加 IPv6 入站 SP 失败 (非致命)", logger.Err(err))
+		s.Logger.Warn(s.pfx("添加 IPv6 入站 SP 失败 (非致命)"), logger.Err(err))
 	} else {
 		s.netUndos = append(s.netUndos, func() error { return xfrmMgr.DelSP(inSP6) })
 	}
 
-	s.Logger.Debug("XFRM SP 已安装")
+	s.Logger.Debug(s.pfx("XFRM SP 已安装"))
 
 	// 缓存所有 SP 配置（MOBIKE 地址更新时使用）
 	s.xfrmPolicies = []driver.XFRMSPConfig{outSP4, inSP4, fwdSP4, outSP6, inSP6}
@@ -1390,7 +1404,7 @@ func (s *Session) setupXFRMDataPlane() error {
 	}
 	if mtu > 0 {
 		if err := s.net.SetMTU(xfrmIfName, mtu); err != nil {
-			s.Logger.Warn("设置 XFRM 接口 MTU 失败", logger.Err(err))
+			s.Logger.Warn(s.pfx("设置 XFRM 接口 MTU 失败"), logger.Err(err))
 		}
 	}
 
@@ -1399,7 +1413,7 @@ func (s *Session) setupXFRMDataPlane() error {
 		return fmt.Errorf("在 XFRM 接口上配置网络失败: %v", err)
 	}
 
-	s.Logger.Info("XFRMI 数据平面已就绪",
+	s.Logger.Info(s.pfx("XFRMI 数据平面已就绪"),
 		logger.String("iface", xfrmIfName),
 		logger.Uint32("ifID", xfrmIfID),
 		logger.Int("mtu", mtu))
@@ -1530,7 +1544,7 @@ func (s *Session) rekeyXFRMSA(oldOutSPI, oldInSPI uint32, newSAOut, newSAIn *ips
 		})
 	}
 
-	s.Logger.Debug("XFRM SA/SP 已更新 (Rekey)",
+	s.Logger.Debug(s.pfx("XFRM SA/SP 已更新 (Rekey)"),
 		logger.Uint32("newOutSPI", newSAOut.SPI),
 		logger.Uint32("newInSPI", newSAIn.SPI))
 
@@ -1545,7 +1559,7 @@ type netToolsDeleter interface {
 }
 
 func (s *Session) applyNetworkConfigOnTUN(iface string) error {
-	s.Logger.Debug("Applying network config on TUN", logger.String("iface", iface), logger.Bool("has_driver", s.net != nil))
+	s.Logger.Debug(s.pfx("在 TUN 上应用网络配置"), logger.String("iface", iface), logger.Bool("has_driver", s.net != nil))
 
 	if s.net == nil {
 		return nil
@@ -1615,13 +1629,13 @@ func (s *Session) applyNetworkConfigOnTUN(iface string) error {
 		if ts.TSType == ikev2.TS_IPV4_ADDR_RANGE {
 			// 如果不支持策略路由，且是全网段，则跳过 (保护宿主机)
 			if !enablePolicyRouting && isFullIPv4Range(ts) {
-				s.Logger.Debug("Skipping full range IPv4 TS to protect host default gateway", logger.String("start", net.IP(ts.StartAddr).String()))
+				s.Logger.Debug(s.pfx("跳过全范围 IPv4 TS 以保护宿主机默认网关"), logger.String("start", net.IP(ts.StartAddr).String()))
 				continue
 			}
 
 			// 如果是全网段，直接添加 0.0.0.0/0
 			if isFullIPv4Range(ts) {
-				s.Logger.Debug("PolicyRouting: Adding default IPv4 route (0.0.0.0/0)", logger.Int("table", 0)) // table ID not avail here, just info
+				s.Logger.Debug(s.pfx("策略路由: 添加默认 IPv4 路由 (0.0.0.0/0)"), logger.Int("table", 0)) // table ID not avail here, just info
 				routes = append(routes, "0.0.0.0/0")
 				continue
 			}
@@ -1639,13 +1653,13 @@ func (s *Session) applyNetworkConfigOnTUN(iface string) error {
 		if ts.TSType == ikev2.TS_IPV6_ADDR_RANGE {
 			// 如果不支持策略路由，且是全网段，则跳过
 			if !enablePolicyRouting && isFullIPv6Range(ts) {
-				s.Logger.Warn("Skipping full range IPv6 TS to protect host default gateway")
+				s.Logger.Warn(s.pfx("跳过全范围 IPv6 TS 以保护宿主机默认网关"))
 				continue
 			}
 
 			// 如果是全网段，直接添加 ::/0
 			if isFullIPv6Range(ts) {
-				s.Logger.Debug("PolicyRouting: Adding default IPv6 route (::/0)")
+				s.Logger.Debug(s.pfx("策略路由: 添加默认 IPv6 路由 (::/0)"))
 				routes6 = append(routes6, "::/0")
 				continue
 			}
@@ -1659,7 +1673,7 @@ func (s *Session) applyNetworkConfigOnTUN(iface string) error {
 				} else {
 					// TODO: 完整的 IPv6 范围转 CIDR 比较复杂，暂时只支持全网段或单IP
 					// 如果不是全网段，我们暂不添加详细路由，或者等待后续完善
-					s.Logger.Warn("Skipping complex IPv6 range", logger.String("start", start.String()), logger.String("end", end.String()))
+					s.Logger.Warn(s.pfx("跳过复杂 IPv6 范围"), logger.String("start", start.String()), logger.String("end", end.String()))
 				}
 			}
 		}
@@ -1668,7 +1682,7 @@ func (s *Session) applyNetworkConfigOnTUN(iface string) error {
 	// 尝试使用策略路由（独立路由表），避免多设备共享 P-CSCF 等场景下路由冲突
 	if pr, ok := s.net.(policyRouter); ok {
 		enablePolicyRouting = true
-		s.Logger.Info("Policy routing supported by driver", logger.String("iface", iface))
+		s.Logger.Info(s.pfx("驱动支持策略路由"), logger.String("iface", iface))
 		// 使用 TUN 接口的 link index 作为路由表 ID（避免与系统表冲突，加偏移 1000）
 		link, err := s.net.(*driver.NetTools).GetLink(iface)
 		if err == nil {
@@ -1765,17 +1779,17 @@ func (s *Session) applyNetworkConfigOnTUN(iface string) error {
 }
 
 func (s *Session) startDataPlaneLoop() {
-	s.Logger.Info("ESP 数据平面循环启动", logger.String("tun", s.tun.DeviceName()))
+	s.Logger.Info(s.pfx("ESP 数据平面循环启动"), logger.String("tun", s.tun.DeviceName()))
 
 	// TUN -> ESP
 	go func() {
-		s.Logger.Info("TUN->ESP goroutine 启动")
+		s.Logger.Info(s.pfx("TUN->ESP goroutine 启动"))
 		buf := make([]byte, 2000)
 		var tunReadCount, espSendCount, saDropCount uint64
 		for {
 			n, err := s.tun.Read(buf)
 			if err != nil {
-				s.Logger.Info("TUN 读取结束", logger.Err(err))
+				s.Logger.Info(s.pfx("TUN 读取结束"), logger.Err(err))
 				break
 			}
 			tunReadCount++
@@ -1799,7 +1813,7 @@ func (s *Session) startDataPlaneLoop() {
 			if saOut == nil {
 				saDropCount++
 				if saDropCount <= 5 || saDropCount%100 == 0 {
-					s.Logger.Warn("ESP 出站 SA 为空，丢弃数据包",
+					s.Logger.Warn(s.pfx("ESP 出站 SA 为空，丢弃数据包"),
 						logger.Uint64("dropCount", saDropCount),
 						logger.String("dstIP", dstIP),
 						logger.Int("proto", int(proto)),
@@ -1810,18 +1824,18 @@ func (s *Session) startDataPlaneLoop() {
 
 			espPacket, err := ipsec.Encapsulate(packet, saOut)
 			if err != nil {
-				s.Logger.Warn("ESP 封装错误", logger.Err(err), logger.String("dstIP", dstIP))
+				s.Logger.Warn(s.pfx("ESP 封装错误"), logger.Err(err), logger.String("dstIP", dstIP))
 				continue
 			}
 
 			if err := s.socket.SendESP(espPacket); err != nil {
-				s.Logger.Warn("ESP 发送失败", logger.Err(err), logger.String("dstIP", dstIP))
+				s.Logger.Warn(s.pfx("ESP 发送失败"), logger.Err(err), logger.String("dstIP", dstIP))
 				continue
 			}
 
 			espSendCount++
 			if espSendCount <= 10 || espSendCount%100 == 0 {
-				s.Logger.Debug("ESP 已发送",
+				s.Logger.Debug(s.pfx("ESP 已发送"),
 					logger.Uint64("count", espSendCount),
 					logger.String("dstIP", dstIP),
 					logger.Int("proto", int(proto)),
@@ -1830,7 +1844,7 @@ func (s *Session) startDataPlaneLoop() {
 					logger.Uint32("spi", saOut.SPI))
 			}
 		}
-		s.Logger.Info("TUN->ESP 循环退出", logger.Uint64("tunRead", tunReadCount), logger.Uint64("espSend", espSendCount), logger.Uint64("saDrop", saDropCount))
+		s.Logger.Info(s.pfx("TUN->ESP 循环退出"), logger.Uint64("tunRead", tunReadCount), logger.Uint64("espSend", espSendCount), logger.Uint64("saDrop", saDropCount))
 	}()
 
 	// ESP -> TUN
@@ -1852,13 +1866,13 @@ func (s *Session) startDataPlaneLoop() {
 			}
 
 			if sa == nil {
-				s.Logger.Warn("ESP 入站 SA 为空，丢弃数据包", logger.Uint32("spi", spi), logger.Int("len", len(espData)))
+				s.Logger.Warn(s.pfx("ESP 入站 SA 为空，丢弃数据包"), logger.Uint32("spi", spi), logger.Int("len", len(espData)))
 				continue
 			}
 
 			packet, err := ipsec.Decapsulate(espData, sa)
 			if err != nil {
-				s.Logger.Warn("ESP 解封装错误", logger.Err(err), logger.Uint32("spi", spi), logger.Int("len", len(espData)))
+				s.Logger.Warn(s.pfx("ESP 解封装错误"), logger.Err(err), logger.Uint32("spi", spi), logger.Int("len", len(espData)))
 				continue
 			}
 
@@ -1874,20 +1888,20 @@ func (s *Session) startDataPlaneLoop() {
 			}
 
 			if _, err := s.tun.Write(packet); err != nil {
-				logger.Warn("TUN 写入失败", logger.Err(err), logger.String("srcIP", srcIP))
+				s.Logger.Warn(s.pfx("TUN 写入失败"), logger.Err(err), logger.String("srcIP", srcIP))
 				continue
 			}
 
 			tunWriteCount++
 			if tunWriteCount <= 10 || tunWriteCount%100 == 0 {
-				logger.Debug("TUN 已写入",
+				s.Logger.Debug(s.pfx("TUN 已写入"),
 					logger.Uint64("count", tunWriteCount),
 					logger.String("srcIP", srcIP),
 					logger.Int("len", len(packet)),
 					logger.Uint32("spi", spi))
 			}
 		}
-		logger.Info("ESP->TUN 循环退出", logger.Uint64("espRecv", espRecvCount), logger.Uint64("tunWrite", tunWriteCount))
+		s.Logger.Info(s.pfx("ESP->TUN 循环退出"), logger.Uint64("espRecv", espRecvCount), logger.Uint64("tunWrite", tunWriteCount))
 	}()
 }
 
@@ -1963,7 +1977,7 @@ func (s *Session) sendEncryptedWithRetry(payloads []ikev2.Payload, exchangeType 
 	// 为后续重发准备调试状态
 	s.lastEncryptedMsg = packets[0]
 	s.lastEncryptedMsgID = msgID
-	logger.Debug("发送加密 IKE 消息（已送入并发重传窗口）",
+	s.Logger.Debug(s.pfx("发送加密 IKE 消息（已送入并发重传窗口）"),
 		logger.Uint64("spii", s.SPIi),
 		logger.Uint64("spir", s.SPIr),
 		logger.Uint32("msgid", msgID),

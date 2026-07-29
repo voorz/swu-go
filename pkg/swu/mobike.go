@@ -25,7 +25,7 @@ func (s *Session) UpdateAddresses(newLocalAddr, newRemoteAddr string) error {
 		return errors.New("对端不支持 MOBIKE，无法动态更新地址")
 	}
 
-	s.Logger.Info("开始 MOBIKE 地址更新",
+	s.Logger.Info(s.pfx("开始 MOBIKE 地址更新"),
 		logger.String("newLocal", newLocalAddr),
 		logger.String("newRemote", newRemoteAddr))
 
@@ -70,11 +70,11 @@ func (s *Session) UpdateAddresses(newLocalAddr, newRemoteAddr string) error {
 	// ── 步骤 3: 更新内核 XFRM SA 和 SP ──
 	if s.xfrmMgr != nil {
 		if err := s.updateXFRMState(newLocalAddr, newRemoteAddr); err != nil {
-			s.Logger.Warn("MOBIKE: 更新 XFRM 失败", logger.Err(err))
+			s.Logger.Warn(s.pfx("MOBIKE: 更新 XFRM 失败"), logger.Err(err))
 		}
 	}
 
-	s.Logger.Info("MOBIKE 地址更新完成")
+	s.Logger.Info(s.pfx("MOBIKE 地址更新完成"))
 	return nil
 }
 
@@ -136,7 +136,7 @@ func (s *Session) sendMOBIKEUpdate() ([]byte, error) {
 func (s *Session) verifyCookie2Response(respData []byte, expectedCookie2 []byte) error {
 	if len(respData) == 0 {
 		// 空响应 = 对端不支持 COOKIE2，接受
-		s.Logger.Debug("MOBIKE 响应为空（无 COOKIE2）")
+		s.Logger.Debug(s.pfx("MOBIKE 响应为空（无 COOKIE2）"))
 		return nil
 	}
 
@@ -156,13 +156,13 @@ func (s *Session) verifyCookie2Response(respData []byte, expectedCookie2 []byte)
 						return errors.New("COOKIE2 验证失败，可能遭受攻击")
 					}
 				}
-				s.Logger.Debug("COOKIE2 验证通过")
+				s.Logger.Debug(s.pfx("COOKIE2 验证通过"))
 				return nil
 			}
 		}
 	}
 	// 响应中没有 COOKIE2 — 对端不支持，接受
-	s.Logger.Debug("MOBIKE 响应中无 COOKIE2")
+	s.Logger.Debug(s.pfx("MOBIKE 响应中无 COOKIE2"))
 	return nil
 }
 
@@ -246,7 +246,7 @@ func (s *Session) updateXFRMState(localAddr, remoteAddr string) error {
 			pol.TmplDst = lIP
 		}
 		if err := xfrmMgr.UpdateSP(*pol); err != nil {
-			s.Logger.Warn("更新 SP 失败",
+			s.Logger.Warn(s.pfx("更新 SP 失败"),
 				logger.Int("dir", int(pol.Dir)),
 				logger.Err(err))
 		}
