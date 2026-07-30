@@ -113,12 +113,13 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 		NotifyType: ikev2.MOBIKE_SUPPORTED,
 	}
 
-	// RFC 5723 Session Resumption
-	s.Logger.Debug(s.pfx("正在组装第一包 IKE_AUTH，已插入 TICKET_REQUEST 凭证索求 Notify"))
-	ticketReqPayload := &ikev2.EncryptedPayloadNotify{
-		ProtocolID: 0,
-		NotifyType: ikev2.TICKET_REQUEST,
-	}
+	// RFC 5723 Session Resumption — disabled: some ePDGs reject IKE_AUTH when
+	// TICKET_REQUEST is present (observed with Three UK ePDG → EAP-Failure).
+	// s.Logger.Debug(s.pfx("正在组装第一包 IKE_AUTH，已插入 TICKET_REQUEST 凭证索求 Notify"))
+	// ticketReqPayload := &ikev2.EncryptedPayloadNotify{
+	// 	ProtocolID: 0,
+	// 	NotifyType: ikev2.TICKET_REQUEST,
+	// }
 
 	// RFC 7296 §2.4: INITIAL_CONTACT — 告知 ePDG 清除此身份关联的所有旧 IKE SA
 	// 防止断网未发 DELETE 导致的僵尸半开隧道占用路由资源
@@ -128,7 +129,7 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	}
 	s.Logger.Debug(s.pfx("IKE_AUTH 已注入 INITIAL_CONTACT，要求 ePDG 清理旧隧道残留"))
 
-	payloads := []ikev2.Payload{idPayload, idrPayload, cpPayload, saPayload, tsPayloadI, tsPayloadR, mobikePayload, ticketReqPayload, initialContactPayload}
+	payloads := []ikev2.Payload{idPayload, idrPayload, cpPayload, saPayload, tsPayloadI, tsPayloadR, mobikePayload, initialContactPayload}
 	// DEVICE_IDENTITY notify: default disabled (v1.5.5 baseline device_identity_present=false).
 	// Per-carrier override via cfg.DeviceIdentityEnabled.
 	if s.cfg.DeviceIdentityEnabled != nil && *s.cfg.DeviceIdentityEnabled {
