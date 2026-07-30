@@ -37,8 +37,12 @@ func (s *Session) RekeyIKESA() error {
 		return fmt.Errorf("生成 Nonce 失败: %v", err)
 	}
 
-	// 2. 生成新 DH 密钥对 (MODP-2048)
-	newDH, err := crypto.NewDiffieHellman(14) // Group 14 = MODP-2048
+	// 2. 生成新 DH 密钥对（使用初始 SA 协商的 DH 组）
+	dhGroup := s.ikeDHID
+	if dhGroup == 0 {
+		dhGroup = uint16(ikev2.MODP_2048_bit) // fallback
+	}
+	newDH, err := crypto.NewDiffieHellman(dhGroup)
 	if err != nil {
 		return fmt.Errorf("创建 DH 失败: %v", err)
 	}
@@ -55,15 +59,29 @@ func (s *Session) RekeyIKESA() error {
 
 	// 4. 构建 SA Proposal（ProtoIKE，SPI = 新 SPIi）
 	// 使用当前会话的加密/完整性/PRF/DH 算法
+	// 使用初始 SA 协商的算法构建 Rekey Proposal，避免 NO_PROPOSAL_CHOSEN
+	encrKeyLen := s.ikeEncrKeyLenBits
+	if encrKeyLen == 0 {
+		encrKeyLen = 128 // fallback
+	}
+	prfAlg := ikev2.AlgorithmType(s.ikePRFID)
+	if s.ikePRFID == 0 {
+		prfAlg = ikev2.PRF_HMAC_SHA2_256 // fallback
+	}
+	dhAlg := ikev2.AlgorithmType(s.ikeDHID)
+	if s.ikeDHID == 0 {
+		dhAlg = ikev2.MODP_2048_bit // fallback
+	}
+
 	prop := ikev2.NewProposal(1, ikev2.ProtoIKE, newSPIiBytes)
 	if s.ikeIsAEAD {
-		prop.AddTransformWithKeyLen(ikev2.TransformTypeEncr, ikev2.AlgorithmType(s.ikeEncrID), 128)
+		prop.AddTransformWithKeyLen(ikev2.TransformTypeEncr, ikev2.AlgorithmType(s.ikeEncrID), encrKeyLen)
 	} else {
-		prop.AddTransformWithKeyLen(ikev2.TransformTypeEncr, ikev2.AlgorithmType(s.ikeEncrID), 128)
+		prop.AddTransformWithKeyLen(ikev2.TransformTypeEncr, ikev2.AlgorithmType(s.ikeEncrID), encrKeyLen)
 		prop.AddTransform(ikev2.TransformTypeInteg, ikev2.AlgorithmType(s.ikeIntegID), 0)
 	}
-	prop.AddTransform(ikev2.TransformTypePRF, ikev2.PRF_HMAC_SHA2_256, 0)
-	prop.AddTransform(ikev2.TransformTypeDH, ikev2.MODP_2048_bit, 0)
+	prop.AddTransform(ikev2.TransformTypePRF, prfAlg, 0)
+	prop.AddTransform(ikev2.TransformTypeDH, dhAlg, 0)
 
 	saPayload := &ikev2.EncryptedPayloadSA{
 		Proposals: []*ikev2.Proposal{prop},
@@ -71,7 +89,7 @@ func (s *Session) RekeyIKESA() error {
 
 	// 5. KE 载荷（新公钥）
 	kePayload := &ikev2.EncryptedPayloadKE{
-		DHGroup: ikev2.MODP_2048_bit,
+		DHGroup: ikev2.AlgorithmType(dhGroup),
 		KEData:  newDH.PublicKeyBytes(),
 	}
 

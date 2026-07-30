@@ -50,9 +50,12 @@ type Session struct {
 
 	SequenceNumber atomic.Uint32 // IKE 消息 ID (利用原子操作支持并发挂窗)
 
-	ikeEncrID  uint16
-	ikeIntegID uint16
-	ikeIsAEAD  bool
+	ikeEncrID         uint16
+	ikeIntegID        uint16
+	ikeIsAEAD         bool
+	ikePRFID          uint16 // 协商的 PRF 算法 ID（用于 IKE SA Rekey 提议）
+	ikeDHID           uint16 // 协商的 DH 组 ID（用于 IKE SA Rekey 提议）
+	ikeEncrKeyLenBits int    // 协商的加密密钥位数（用于 IKE SA Rekey 提议）
 
 	// Child SA 状态 (目前仅支持一对)
 	ChildSAIn  *ipsec.SecurityAssociation

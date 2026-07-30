@@ -337,6 +337,9 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 		return fmt.Errorf("选择了不支持的 Encr: %d", encrID)
 	}
 	s.ikeEncrID = encrID
+	s.ikePRFID = prfID
+	s.ikeDHID = dhID
+	s.ikeEncrKeyLenBits = encrKeyLenBits
 	s.ikeIsAEAD = encrID == uint16(ikev2.ENCR_AES_GCM_16) || encrID == uint16(ikev2.ENCR_AES_GCM_12) || encrID == uint16(ikev2.ENCR_AES_GCM_8)
 	if s.ikeIsAEAD {
 		s.ikeIntegID = 0
