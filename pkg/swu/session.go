@@ -809,7 +809,7 @@ func (s *Session) startNATKeepalive(interval time.Duration) {
 // 定期触发 IKE SA Rekey，在 ePDG 8 分钟超时前刷新整个 IKE SA
 // 已经应用类似 strongSwan 的防爆破 jitter 分布
 func (s *Session) startIKESARekeyTimer(interval time.Duration) {
-	const rekeyMaxFail = 2
+	const rekeyMaxFail = 5
 
 	// 初始化 rekey 重置 channel
 	s.rekeyResetCh = make(chan struct{}, 1)
@@ -875,7 +875,7 @@ func (s *Session) startIKESARekeyTimer(interval time.Duration) {
 // 连续失败 rekeyMaxFail 次后触发隧道重建
 // 参考 strongSwan rekey_child_sa_job + jitter 机制
 func (s *Session) startChildSARekeyTimer(interval time.Duration) {
-	const rekeyMaxFail = 2
+	const rekeyMaxFail = 5
 
 	// 初始化 child rekey 重置 channel
 	s.childRekeyResetCh = make(chan struct{}, 1)
