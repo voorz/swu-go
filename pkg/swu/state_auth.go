@@ -367,7 +367,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		s.MSK = msk
 		s.eapKAut = append([]byte(nil), kAut...)
 
-		// 构造响应：AT_RES [+ AT_RESULT_IND] + AT_MAC（对齐 SimAdmin eap_aka.rs）
+		// 构造响应：AT_RES [+ AT_RESULT_IND] + AT_MAC
 		respAttrs := []byte{}
 
 		// AT_RES

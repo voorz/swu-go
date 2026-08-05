@@ -786,6 +786,10 @@ func (s *Session) startNATKeepalive(interval time.Duration) {
 			} else if diff >= interval {
 				// 正常 keepalive
 				if err := sender.SendNATKeepalive(); err != nil {
+					if errors.Is(err, net.ErrClosed) {
+						s.Logger.Info(s.pfx("NAT keepalive socket 已关闭，停止 keepalive goroutine"), logger.Err(err))
+						return
+					}
 					s.Logger.Debug(s.pfx("NAT keepalive 发送失败"), logger.Err(err))
 				} else {
 					s.lastOutboundTime = time.Now()
