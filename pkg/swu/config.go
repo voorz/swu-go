@@ -102,4 +102,8 @@ type Config struct {
 	DeviceID string
 	// TraceID is the request trace identifier used for log correlation.
 	TraceID string
+
+	// IKERetryCount overrides the default IKE retransmission count.
+	// 0 = use default (5, aligned with strongSwan retransmit_tries).
+	IKERetryCount int
 }

@@ -284,7 +284,11 @@ func (s *Session) connectOnce() error {
 	s.Logger.Debug(s.pfx("初始化滑动窗口队列任务调度器 TaskManager"), logger.Int("windowSize", 5))
 
 	// 在 Socket 启动前暂不配置 sendFunc，等到下面 socket.Start() 之后重载
-	s.taskMgr = NewTaskManager(s.ctx, nil, 5, nil)
+	retryCfg := DefaultRetryConfig()
+	if s.cfg.IKERetryCount > 0 {
+		retryCfg.MaxRetries = s.cfg.IKERetryCount
+	}
+	s.taskMgr = NewTaskManager(s.ctx, retryCfg, 5, nil, s.cfg.DeviceID)
 
 	// 1. 设置网络 (Socket)
 	localPort := s.cfg.LocalPort

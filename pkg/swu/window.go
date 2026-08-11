@@ -55,6 +55,7 @@ type TaskManager struct {
 	cancel context.CancelFunc
 	config *RetryConfig
 
+	deviceID   string
 	windowSize int
 	pending    map[uint32]*OutgoingMessage // 正在窗口内飞行的请求
 	queue      []*OutgoingMessage          // 因窗口已满排队等待排入的值
@@ -65,7 +66,7 @@ type TaskManager struct {
 	sendFunc func([][]byte) error // 回拨底层的发包接口
 }
 
-func NewTaskManager(ctx context.Context, config *RetryConfig, winSize int, sendFunc func([][]byte) error) *TaskManager {
+func NewTaskManager(ctx context.Context, config *RetryConfig, winSize int, sendFunc func([][]byte) error, deviceID string) *TaskManager {
 	if config == nil {
 		config = DefaultRetryConfig()
 	}
@@ -79,6 +80,7 @@ func NewTaskManager(ctx context.Context, config *RetryConfig, winSize int, sendF
 		ctx:        tmCtx,
 		cancel:     cancel,
 		config:     config,
+		deviceID:   deviceID,
 		windowSize: winSize,
 		pending:    make(map[uint32]*OutgoingMessage),
 		queue:      make([]*OutgoingMessage, 0),
@@ -210,7 +212,7 @@ func (tm *TaskManager) checkTimeouts() {
 		if now.After(msg.Deadline) || now.Equal(msg.Deadline) {
 			if msg.RetryCount >= msg.MaxRetries {
 				// 已死，打捞并踢下线
-				logger.Warn("IKE 请求遭遇硬超时，剔除 Window", logger.Uint32("msgID", id))
+				logger.Warn("IKE 请求遭遇硬超时，剔除 Window", logger.String("device", tm.deviceID), logger.Uint32("msgID", id))
 				toDelete = append(toDelete, id)
 				close(msg.CompletionCh)
 			} else {
@@ -224,6 +226,7 @@ func (tm *TaskManager) checkTimeouts() {
 				msg.Deadline = now.Add(msg.NextTimeout)
 
 				logger.Debug("IKE 请求触发滑动窗口重传",
+					logger.String("device", tm.deviceID),
 					logger.Uint32("msgID", id),
 					logger.Int("retry", msg.RetryCount),
 					logger.Duration("nextDeadline", msg.NextTimeout))
