@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"net"
 	"time"
 
-	//"encoding/hex"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -15,6 +16,10 @@ import (
 	"github.com/voorz/swu-go/pkg/ikev2"
 	"github.com/voorz/swu-go/pkg/logger"
 )
+
+// ErrInvalidKEPayload 表示 ePDG 要求使用不同的 DH 组 (RFC 7296 §2.7)
+// 发起方应使用 NotifyData 中指定的 DH 组重新生成 KE 并重发 SA_INIT
+var ErrInvalidKEPayload = errors.New("ePDG 要求使用不同的 DH 组，需要重发 IKE_SA_INIT")
 
 func detectOutboundIPv4(remoteIP net.IP, remotePort uint16) (net.IP, error) {
 	if remoteIP == nil {
@@ -51,9 +56,15 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 		rand.Read(s.ni)
 	}
 
-	if s.DH == nil {
+	// INVALID_KE_PAYLOAD 重试：如果 ePDG 要求使用特定 DH 组，则使用该组
+	dhGroup := uint16(14) // 默认 MODP 2048
+	if s.keRetryGroup > 0 {
+		dhGroup = s.keRetryGroup
+		s.Logger.Info(s.pfx("使用 ePDG 指定的 DH 组重新生成 KE"), logger.Uint32("dh_group", uint32(dhGroup)))
+	}
+	if s.DH == nil || s.DH.Group != dhGroup {
 		var err error
-		s.DH, err = crypto.NewDiffieHellman(14)
+		s.DH, err = crypto.NewDiffieHellman(dhGroup)
 		if err != nil {
 			return nil, err
 		}
@@ -70,7 +81,7 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 	}
 
 	kePayload := &ikev2.EncryptedPayloadKE{
-		DHGroup: ikev2.MODP_2048_bit,
+		DHGroup: ikev2.AlgorithmType(dhGroup),
 		KEData:  s.DH.PublicKeyBytes(),
 	}
 
@@ -164,8 +175,21 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 }
 
 func (s *Session) handleIKESAInitResp(data []byte) error {
+	// [debug] 打印收到的原始 IKE 回包（对标社区版 ike_control.go:44）
+	rawHex := hex.EncodeToString(data)
+	if len(rawHex) > 256 {
+		rawHex = rawHex[:256] + "..."
+	}
+	s.Logger.Debug(s.pfx("收到 IKE 原始回包"),
+		logger.Int("len", len(data)),
+		logger.String("raw_hex", rawHex))
+
 	packet, err := ikev2.DecodePacket(data)
 	if err != nil {
+		s.Logger.Warn(s.pfx("SA_INIT 响应解码失败"),
+			logger.Err(err),
+			logger.Int("len", len(data)),
+			logger.String("raw_hex_head", rawHex))
 		return fmt.Errorf("解码 SA_INIT 响应失败: %v", err)
 	}
 
@@ -182,7 +206,10 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 	var natSrc []byte
 	var natDst []byte
 
+	// [debug] 遍历载荷时记录每个载荷的类型
+	var payloadTypes []string
 	for _, p := range packet.Payloads {
+		payloadTypes = append(payloadTypes, fmt.Sprintf("%d", int(p.Type())))
 		switch v := p.(type) {
 		case *ikev2.EncryptedPayloadSA:
 			saPayload = v
@@ -191,6 +218,10 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 		case *ikev2.EncryptedPayloadNonce:
 			noncePayload = v
 		case *ikev2.EncryptedPayloadNotify:
+			// [debug] 打印每个 Notify 的类型和数据长度（对标社区版 state_init.go:386）
+			s.Logger.Debug(s.pfx("SA_INIT 收到状态类 Notify"),
+				logger.Uint32("type", uint32(v.NotifyType)),
+				logger.Int("data_len", len(v.NotifyData)))
 			if v.NotifyType == ikev2.COOKIE {
 				if err := s.handleCookie(v.NotifyData); err != nil {
 					return err
@@ -212,6 +243,19 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 			if v.NotifyType == 14 { // NO_PROPOSAL_CHOSEN
 				return errors.New("服务器拒绝了提议 (NO_PROPOSAL_CHOSEN)")
 			}
+			// RFC 7296 §2.7: INVALID_KE_PAYLOAD
+			// ePDG 要求使用不同的 DH 组，NotificationData 是 2 字节 DH Group ID
+			if v.NotifyType == ikev2.INVALID_KE_PAYLOAD {
+				if len(v.NotifyData) >= 2 {
+					reqGroup := binary.BigEndian.Uint16(v.NotifyData[:2])
+					s.keRetryGroup = reqGroup
+					s.Logger.Info(s.pfx("ePDG 要求使用不同的 DH 组 (INVALID_KE_PAYLOAD)"),
+						logger.Uint32("requested_dh_group", uint32(reqGroup)),
+						logger.Uint32("current_dh_group", uint32(s.DH.Group)))
+					return ErrInvalidKEPayload
+				}
+				return errors.New("收到 INVALID_KE_PAYLOAD 但缺少 DH 组数据")
+			}
 			// RFC 5685: REDIRECT
 			if v.NotifyType == ikev2.REDIRECT {
 				addr, err := ParseRedirectData(v.NotifyData)
@@ -224,7 +268,27 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 		}
 	}
 
+	// [debug] 打印载荷清单
+	s.Logger.Debug(s.pfx("SA_INIT 响应载荷清单"),
+		logger.Int("payload_count", len(packet.Payloads)),
+		logger.Any("payload_types", payloadTypes),
+		logger.Bool("has_sa", saPayload != nil),
+		logger.Bool("has_ke", kePayload != nil),
+		logger.Bool("has_nonce", noncePayload != nil))
+
 	if saPayload == nil || kePayload == nil || noncePayload == nil {
+		// [debug] 缺少载荷时打印详细诊断信息
+		headHex := rawHex
+		if len(headHex) > 128 {
+			headHex = headHex[:128] + "..."
+		}
+		s.Logger.Error(s.pfx("SA_INIT 响应中缺少强制性载荷"),
+		logger.Bool("has_sa", saPayload != nil),
+		logger.Bool("has_ke", kePayload != nil),
+		logger.Bool("has_nonce", noncePayload != nil),
+		logger.Int("payload_count", len(packet.Payloads)),
+		logger.Any("payload_types", payloadTypes),
+		logger.String("raw_hex_head", headHex))
 		return errors.New("SA_INIT 响应中缺少强制性载荷")
 	}
 

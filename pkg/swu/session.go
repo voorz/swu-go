@@ -131,6 +131,10 @@ type Session struct {
 	cookie     []byte // ePDG 返回的 COOKIE
 	sendCookie bool   // 标记是否需要发送 COOKIE
 
+	// INVALID_KE_PAYLOAD 处理 (RFC 7296 §2.7)
+	// ePDG 要求使用的 DH 组（0 表示未收到 INVALID_KE_PAYLOAD）
+	keRetryGroup uint16
+
 	// RFC 5723: Session Resumption
 	resumeTicket []byte // ePDG 下发的 Ticket_Opaque
 	resumeOldSKd []byte // 存放被销毁前一任 IKE_SA 的引流密钥 SK_d
@@ -387,6 +391,10 @@ func (s *Session) connectOnce() error {
 
 			if err := s.handleIKESAInitResp(respData); err != nil {
 				if errors.Is(err, ErrCookieRequired) {
+					continue
+				}
+				if errors.Is(err, ErrInvalidKEPayload) {
+					// ePDG 要求使用不同的 DH 组，重新生成 KE 并重发
 					continue
 				}
 				return err

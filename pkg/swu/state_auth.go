@@ -221,7 +221,25 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		return nil, nil // Stop EAP loop
 	}
 
+	if pkt.Code == eap.CodeFailure {
+		// EAP Failure - ePDG 拒绝认证
+		s.Logger.Warn(s.pfx("收到 EAP Failure (Code 4)"),
+			logger.Int("identifier", int(pkt.Identifier)),
+			logger.Int("type", int(pkt.Type)),
+			logger.Int("data_len", len(pkt.Data)),
+			logger.String("data_hex", hex.EncodeToString(pkt.Data)),
+			logger.String("raw_hex", hex.EncodeToString(eapRaw)),
+		)
+		return nil, fmt.Errorf("EAP Failure: ePDG 拒绝认证")
+	}
+
 	if pkt.Code != eap.CodeRequest {
+		s.Logger.Warn(s.pfx("收到非预期 EAP Code"),
+			logger.Int("code", int(pkt.Code)),
+			logger.Int("type", int(pkt.Type)),
+			logger.Int("subtype", int(pkt.Subtype)),
+			logger.String("raw_hex", hex.EncodeToString(eapRaw)),
+		)
 		return nil, fmt.Errorf("unexpected EAP Code: %d", pkt.Code)
 	}
 
@@ -252,6 +270,10 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 	// 处理 AKA 挑战
 	if pkt.Type == eap.TypeAKA && pkt.Subtype == eap.SubtypeChallenge {
 		s.Logger.Info(s.pfx("收到 EAP-AKA Challenge (4G 模式)"))
+		s.Logger.Debug(s.pfx("EAP-AKA Challenge 原始报文"),
+			logger.String("eap_raw_hex", hex.EncodeToString(eapRaw)),
+			logger.String("data_hex", hex.EncodeToString(pkt.Data)),
+			logger.Int("data_len", len(pkt.Data)))
 		attrs, err := eap.ParseAttributes(pkt.Data)
 		if err != nil {
 			return nil, err
@@ -261,12 +283,21 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		atAutn, ok2 := attrs[eap.AT_AUTN]
 		atMac, ok3 := attrs[eap.AT_MAC]
 
-		// DEBUG: Print all received attributes
+		// DEBUG: Print all received attributes with details
 		var keys []uint8
 		for k := range attrs {
 			keys = append(keys, k)
 		}
 		s.Logger.Debug(s.pfx("收到 EAP-AKA Challenge 属性"), logger.Any("keys", keys))
+
+		// 打印每个属性的详细内容
+		for k, v := range attrs {
+			s.Logger.Debug(s.pfx("Challenge 属性详情"),
+				logger.Int("attr_type", int(k)),
+				logger.Int("attr_len_words", int(v.Length)),
+				logger.Int("attr_value_len", len(v.Value)),
+				logger.String("attr_value_hex", hex.EncodeToString(v.Value)))
+		}
 
 		if !ok1 || !ok2 {
 			return nil, errors.New("AKA 挑战中缺少 RAND 或 AUTN")
@@ -367,7 +398,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		s.MSK = msk
 		s.eapKAut = append([]byte(nil), kAut...)
 
-		// 构造响应：AT_RES [+ AT_RESULT_IND] + AT_MAC
+		// 构造响应：AT_RES [+ 非标属性回显] [+ AT_RESULT_IND] + AT_MAC
 		respAttrs := []byte{}
 
 		// AT_RES
@@ -376,6 +407,20 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		resValue := append(resBits, res...)
 		atRes := &eap.Attribute{Type: eap.AT_RES, Value: resValue}
 		respAttrs = append(respAttrs, atRes.Encode()...)
+
+		// 回显非标属性 (0x86/134 等)，某些 ePDG (如 CSL HK) 要求客户端回显
+		for attrType, attrVal := range attrs {
+			if attrType == eap.AT_RAND || attrType == eap.AT_AUTN || attrType == eap.AT_MAC ||
+				attrType == eap.AT_RESULT_IND || attrType == eap.AT_RES {
+				continue // 跳过标准属性
+			}
+			// 回显非标属性
+			s.Logger.Debug(s.pfx("Challenge Response 回显非标属性"),
+				logger.Int("attr_type", int(attrType)),
+				logger.Int("attr_value_len", len(attrVal.Value)))
+			echoAttr := &eap.Attribute{Type: attrType, Value: attrVal.Value}
+			respAttrs = append(respAttrs, echoAttr.Encode()...)
+		}
 
 		if _, ok := attrs[eap.AT_RESULT_IND]; ok {
 			atResultInd := &eap.Attribute{Type: eap.AT_RESULT_IND, Value: []byte{0, 0}}
@@ -399,6 +444,16 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 
 		eapBytes := respPkt.Encode()
 
+		// 调试：打印 Challenge Response 完整报文
+		s.Logger.Debug(s.pfx("EAP-AKA Challenge Response 发送报文"),
+			logger.String("eap_hex", hex.EncodeToString(eapBytes)),
+			logger.Int("res_len_bits", len(res)*8),
+			logger.Int("res_len_bytes", len(res)),
+			logger.String("res_hex", hex.EncodeToString(res)),
+			logger.String("kAut_hex", hex.EncodeToString(kAut)),
+			logger.Bool("mac_validation_skipped", s.cfg.DisableEAPMACValidation),
+		)
+
 		// 计算 MAC
 		// EAP 数据包上的 HMAC-SHA1-128 (前 16 字节)
 		mac := hmac.New(sha1.New, kAut)
@@ -414,6 +469,14 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		// 所以数据从 8 开始。
 		macPos := 8 + macOffset + 4
 		copy(eapBytes[macPos:], fullMac[:16])
+
+		// 调试：打印 MAC 写入后的最终报文和 MAC 值
+		s.Logger.Debug(s.pfx("EAP-AKA Challenge Response MAC 写入完成"),
+			logger.String("final_eap_hex", hex.EncodeToString(eapBytes)),
+			logger.String("full_mac_hex", hex.EncodeToString(fullMac)),
+			logger.Int("mac_pos", macPos),
+			logger.String("mac_in_packet_hex", hex.EncodeToString(eapBytes[macPos:macPos+16])),
+		)
 
 		eapPayload := &ikev2.EncryptedPayloadEAP{EAPMessage: eapBytes}
 
@@ -712,6 +775,82 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		return []ikev2.Payload{eapPayload}, nil
 	}
 
+	// EAP-AKA Identity (RFC 4187 §9.1)
+	// ePDG 发送 AKA-Identity 请求（含 AT_ANY_ID_REQ 或 AT_PERMANENT_ID_REQ），
+	// 要求客户端回复永久身份或任意身份。CSL 香港等运营商会使用此流程。
+	if pkt.Type == eap.TypeAKA && pkt.Subtype == eap.SubtypeIdentity {
+		s.Logger.Info(s.pfx("收到 EAP-AKA Identity 请求"))
+
+		// 解析属性，确认请求类型
+		attrs, err := eap.ParseAttributes(pkt.Data)
+		if err != nil {
+			return nil, fmt.Errorf("解析 EAP-AKA Identity 属性失败: %v", err)
+		}
+
+		reqType := "unknown"
+		if _, ok := attrs[eap.AT_ANY_ID_REQ]; ok {
+			reqType = "AT_ANY_ID_REQ"
+		} else if _, ok := attrs[eap.AT_PERMANENT_ID_REQ]; ok {
+			reqType = "AT_PERMANENT_ID_REQ"
+		} else if _, ok := attrs[eap.AT_FULLAUTH_ID_REQ]; ok {
+			reqType = "AT_FULLAUTH_ID_REQ"
+		}
+		s.Logger.Debug(s.pfx("EAP-AKA Identity 请求类型"), logger.String("req_type", reqType))
+
+		// 构建永久身份 NAI
+		// 优先使用快速重连假名（若 AT_ANY_ID_REQ 且有假名），否则使用 IMSI 永久身份
+		var identity string
+		if reqType == "AT_ANY_ID_REQ" && s.fastReauthCtx != nil && s.fastReauthCtx.CanUseReauth() {
+			identity = s.fastReauthCtx.ReauthID
+			s.Logger.Info(s.pfx("EAP-AKA Identity: 使用快速重连假名"), logger.String("reauthID", identity))
+		} else {
+			imsi, _ := s.cfg.SIM.GetIMSI()
+			if imsi == "" && s.cfg.IMSI != "" {
+				imsi = s.cfg.IMSI
+			}
+			identity = buildNAI(imsi, s.cfg)
+			s.Logger.Debug(s.pfx("EAP-AKA Identity: 使用永久身份 NAI"), logger.String("nai", identity))
+		}
+
+		// 构建 AT_IDENTITY 属性 (RFC 4187 §10.6)
+		// 格式: AT_IDENTITY(1) | Length(1) | Actual_Length(2) | Identity(N)
+		identityBytes := []byte(identity)
+		actualLen := len(identityBytes)
+		// Length 字段以 4 字节为单位，向上取整
+		attrLen := uint16((4 + actualLen + 3) / 4) // 4 = type(1)+len(1)+actual_len(2)
+		// 总字节数 = attrLen * 4
+		totalBytes := int(attrLen) * 4
+		// padding = totalBytes - 4 - actualLen
+		paddingLen := totalBytes - 4 - actualLen
+
+		atIdentity := make([]byte, totalBytes)
+		atIdentity[0] = eap.AT_IDENTITY
+		atIdentity[1] = byte(attrLen)
+		atIdentity[2] = byte(actualLen >> 8)
+		atIdentity[3] = byte(actualLen)
+		copy(atIdentity[4:], identityBytes)
+		// padding 字节已为 0
+
+		s.Logger.Debug(s.pfx("EAP-AKA Identity 响应构建"),
+			logger.Int("identity_len", actualLen),
+			logger.Int("attr_total_bytes", totalBytes),
+			logger.Int("padding_len", paddingLen))
+
+		respPkt := &eap.EAPPacket{
+			Code:       eap.CodeResponse,
+			Identifier: pkt.Identifier,
+			Type:       eap.TypeAKA,
+			Subtype:    eap.SubtypeIdentity,
+			Data:       atIdentity,
+		}
+
+		eapBytes := respPkt.Encode()
+
+		// AT_MAC 不需要在此响应中（Identity 响应不携带 MAC）
+		eapPayload := &ikev2.EncryptedPayloadEAP{EAPMessage: eapBytes}
+		return []ikev2.Payload{eapPayload}, nil
+	}
+
 	// EAP-AKA Notification (RFC 4187 §9.3.1；O2 等运营商可能用 subtype 12)
 	if pkt.Type == eap.TypeAKA && s.isAKANotification(pkt) {
 		return s.buildEAPAKANotificationResponse(pkt)
@@ -781,6 +920,17 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		eapPayload := &ikev2.EncryptedPayloadEAP{EAPMessage: eapBytes}
 		return []ikev2.Payload{eapPayload}, nil
 	}
+
+	// 未匹配到任何已处理的 EAP 类型/子类型，打印详细调试信息后返回错误
+	s.Logger.Warn(s.pfx("收到未处理的 EAP 报文"),
+		logger.Int("code", int(pkt.Code)),
+		logger.Int("type", int(pkt.Type)),
+		logger.Int("subtype", int(pkt.Subtype)),
+		logger.Int("identifier", int(pkt.Identifier)),
+		logger.Int("data_len", len(pkt.Data)),
+		logger.String("data_hex", hex.EncodeToString(pkt.Data)),
+		logger.String("raw_hex", hex.EncodeToString(eapRaw)),
+	)
 
 	return nil, fmt.Errorf("不支持的 EAP 类型/子类型: %d/%d", pkt.Type, pkt.Subtype)
 }
