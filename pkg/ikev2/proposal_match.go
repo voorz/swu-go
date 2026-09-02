@@ -166,45 +166,47 @@ func (pm *ProposalMatcher) isAEAD(encr AlgorithmType) bool {
 }
 
 // CreateMultiProposalIKE 创建涵盖高、中、低兼容级别的 IKE 提议
+// 前 3 个对齐社区版（AES-CBC + DH2048），后 2 个保留为兼容兜底
 func CreateMultiProposalIKE(spi []byte) []*Proposal {
 	proposals := []*Proposal{}
 	pNum := uint8(1)
 
-	// 提议 1: 高安全组 (AES-GCM-256 + SHA384 + DH15)
+	// 提议 1: AES-CBC-128 + SHA256 + DH2048
 	prop1 := NewProposal(pNum, ProtoIKE, spi)
-	prop1.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_GCM_16, 256)
-	prop1.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_384, 0)
-	prop1.AddTransform(TransformTypeDH, MODP_3072_bit, 0)
+	prop1.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 128)
+	prop1.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_256_128, 0)
+	prop1.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_256, 0)
+	prop1.AddTransform(TransformTypeDH, MODP_2048_bit, 0)
 	proposals = append(proposals, prop1)
 	pNum++
 
-	// 提议 2: 主流安全组 (AES-GCM-128 + SHA256 + DH14) - VoWiFi 常用
+	// 提议 2: AES-CBC-256 + SHA256 + DH2048
 	prop2 := NewProposal(pNum, ProtoIKE, spi)
-	prop2.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_GCM_16, 128)
+	prop2.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 256)
+	prop2.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_256_128, 0)
 	prop2.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_256, 0)
 	prop2.AddTransform(TransformTypeDH, MODP_2048_bit, 0)
 	proposals = append(proposals, prop2)
 	pNum++
 
-	// 提议 3: 传统高安全组 (AES-CBC-256 + SHA256 + DH14)
+	// 提议 3: AES-CBC-256 + SHA512 + DH2048
 	prop3 := NewProposal(pNum, ProtoIKE, spi)
 	prop3.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 256)
-	prop3.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_256_128, 0)
-	prop3.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_256, 0)
+	prop3.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_512_256, 0)
+	prop3.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_512, 0)
 	prop3.AddTransform(TransformTypeDH, MODP_2048_bit, 0)
 	proposals = append(proposals, prop3)
 	pNum++
 
-	// 提议 4: 传统主流组 (AES-CBC-128 + SHA256 + DH14)
+	// 提议 4: 高安全组 (AES-GCM-256 + SHA384 + DH3072) — 兼容兜底
 	prop4 := NewProposal(pNum, ProtoIKE, spi)
-	prop4.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 128)
-	prop4.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_256_128, 0)
-	prop4.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_256, 0)
-	prop4.AddTransform(TransformTypeDH, MODP_2048_bit, 0)
+	prop4.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_GCM_16, 256)
+	prop4.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_384, 0)
+	prop4.AddTransform(TransformTypeDH, MODP_3072_bit, 0)
 	proposals = append(proposals, prop4)
 	pNum++
 
-	// 提议 5: 远古兜底兼容组 (AES-CBC-128 + SHA1 + DH2)
+	// 提议 5: 远古兜底兼容组 (AES-CBC-128 + SHA1 + DH1024)
 	prop5 := NewProposal(pNum, ProtoIKE, spi)
 	prop5.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 128)
 	prop5.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA1_96, 0)
