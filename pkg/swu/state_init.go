@@ -52,7 +52,7 @@ func (s *Session) sendIKESAInit() error {
 
 func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 	if len(s.ni) == 0 {
-		s.ni = make([]byte, 32)
+		s.ni = make([]byte, 16) // 对齐社区版: Nonce 16 字节
 		rand.Read(s.ni)
 	}
 
@@ -78,6 +78,13 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 
 	saPayload := &ikev2.EncryptedPayloadSA{
 		Proposals: proposals,
+	}
+
+	// [debug] 验证 SA body 大小
+	if saBody, err := saPayload.Encode(); err == nil {
+		s.Logger.Debug(s.pfx("SA body 编码验证"),
+			logger.Int("proposals", len(proposals)),
+			logger.Int("body_len", len(saBody)))
 	}
 
 	kePayload := &ikev2.EncryptedPayloadKE{
@@ -145,9 +152,10 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 		NotifyType: ikev2.IKEV2_FRAGMENTATION_SUPPORTED,
 	}
 
-	// 顺序: SA, KE, Nonce, FRAG, [COOKIE], NAT_SRC, NAT_DST
+	// 顺序: SA, KE, Nonce, [COOKIE], NAT_SRC, NAT_DST, FRAG
+	// 对齐社区版: NAT_SRC → NAT_DST → FRAG 在最后
 
-	payloads := []ikev2.Payload{saPayload, kePayload, noncePayload, fragNotify}
+	payloads := []ikev2.Payload{saPayload, kePayload, noncePayload}
 	if s.sendCookie && len(s.cookie) > 0 {
 		payloads = append(payloads, &ikev2.EncryptedPayloadNotify{
 			ProtocolID: 0,
@@ -155,7 +163,7 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 			NotifyData: s.cookie,
 		})
 	}
-	payloads = append(payloads, natSrcPayload, natDstPayload)
+	payloads = append(payloads, natSrcPayload, natDstPayload, fragNotify)
 
 	packet := ikev2.NewIKEPacket()
 	packet.Header.SPIi = s.SPIi
