@@ -33,7 +33,9 @@ const (
 	SUPPORTED_ATTRIBUTES       = 14
 	P_CSCF_IP4_ADDRESS         = 20
 	P_CSCF_IP6_ADDRESS         = 21
-	ASSIGNED_PCSCF_IP6_ADDRESS = 16390
+	ASSIGNED_PCSCF_IP4_ADDRESS = 16384
+	ASSIGNED_PCSCF_IPV6_ADDRESS = 16386 // 3GPP TS 24.302 扩展标识符（Apple carrier profile 使用）
+	ASSIGNED_PCSCF_IP6_ADDRESS  = 16390 // RFC 7296 旧定义
 )
 
 func (p *EncryptedPayloadCP) Type() PayloadType { return CP }

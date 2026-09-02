@@ -68,11 +68,11 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 			Attributes: []*ikev2.CPAttribute{
 				{Type: ikev2.INTERNAL_IP4_ADDRESS},
 				{Type: ikev2.INTERNAL_IP4_DNS},
-				{Type: ikev2.P_CSCF_IP4_ADDRESS},
-				{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
-				{Type: ikev2.INTERNAL_IP6_DNS},
-				{Type: ikev2.P_CSCF_IP6_ADDRESS},
-				{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
+			{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS},
+			{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
+			{Type: ikev2.INTERNAL_IP6_DNS},
+			{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS},
+			{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
 			},
 		}
 	}
@@ -1109,11 +1109,11 @@ func (s *Session) buildIKEAuthFinalPayloads() ([]ikev2.Payload, error) {
 			Attributes: []*ikev2.CPAttribute{
 				{Type: ikev2.INTERNAL_IP4_ADDRESS},
 				{Type: ikev2.INTERNAL_IP4_DNS},
-				{Type: ikev2.P_CSCF_IP4_ADDRESS},
-				{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
-				{Type: ikev2.INTERNAL_IP6_DNS},
-				{Type: ikev2.P_CSCF_IP6_ADDRESS},
-				{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
+			{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS},
+			{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
+			{Type: ikev2.INTERNAL_IP6_DNS},
+			{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS},
+			{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
 			},
 		}
 		// CP goes before AUTH

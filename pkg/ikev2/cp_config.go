@@ -36,6 +36,10 @@ func ParseCPConfig(cp *EncryptedPayloadCP) *CPConfig {
 			if len(attr.Value) >= 4 {
 				cfg.IPv4PCSCF = append(cfg.IPv4PCSCF, net.IP(attr.Value[:4]))
 			}
+		case ASSIGNED_PCSCF_IP4_ADDRESS:
+			if len(attr.Value) >= 4 {
+				cfg.IPv4PCSCF = append(cfg.IPv4PCSCF, net.IP(attr.Value[:4]))
+			}
 		case INTERNAL_IP6_ADDRESS:
 			// IPv6 地址格式: 16 字节 IP + 1 字节前缀长度
 			if len(attr.Value) >= 17 {
@@ -49,6 +53,10 @@ func ParseCPConfig(cp *EncryptedPayloadCP) *CPConfig {
 				cfg.IPv6DNS = append(cfg.IPv6DNS, net.IP(attr.Value[:16]))
 			}
 		case P_CSCF_IP6_ADDRESS:
+			if len(attr.Value) >= 16 {
+				cfg.IPv6PCSCF = append(cfg.IPv6PCSCF, net.IP(attr.Value[:16]))
+			}
+		case ASSIGNED_PCSCF_IPV6_ADDRESS:
 			if len(attr.Value) >= 16 {
 				cfg.IPv6PCSCF = append(cfg.IPv6PCSCF, net.IP(attr.Value[:16]))
 			}
