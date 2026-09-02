@@ -40,7 +40,7 @@ type Config struct {
 	// 默认 false（VoWiFi 场景通常不需要）
 	EnableESN bool
 
-	DisableEAPMACValidation bool
+	EAPMACValidation bool
 
 	EnableWiresharkKeyLog bool
 	WiresharkKeyLogPath   string
@@ -87,8 +87,33 @@ type Config struct {
 	DeviceIdentityEnabled *bool
 
 	// AKAChallengeMode controls EAP-AKA challenge behavior.
-	// "standard" (default), "checkcode", "omit".
+	// "standard" (default), "minimal", "checkcode", "omit".
 	AKAChallengeMode string
+
+	// TicketRequestEnabled controls whether N(TICKET_REQUEST) is sent in
+	// the first IKE_AUTH request (RFC 5723 §3.1).
+	// nil = default (disabled, compatible with Three UK ePDG).
+	// Pointer to true/false allows explicit override per carrier (e.g. 3HK needs it).
+	TicketRequestEnabled *bool
+
+	// CPInFirstAuth controls whether CP(CFG_REQUEST) is included in the first
+	// IKE_AUTH request.
+	// nil = default (true, send CP in first AUTH).
+	// Pointer to false allows carriers whose ePDG rejects CP in the first AUTH.
+	CPInFirstAuth *bool
+
+	// EAPIdentity overrides the NAI used for EAP-AKA. When non-empty, this
+	// takes priority over the IMSI-derived NAI from buildNAI(). This is
+	// how a provisioned ISIM IMPI (e.g. "user@ims.mnc003.mcc454.3gppnetwork.org")
+	// from the上层 vowifi-core identity package flows into the EAP exchange.
+	// Empty = auto-derive from IMSI via buildNAI().
+	EAPIdentity string
+
+	// IMEI is the device IMEI used for AT_CHECKCODE computation when the
+	// SIM provider does not implement sim.IMEIProvider.
+	// When empty and SIM doesn't implement IMEIProvider, checkcode falls
+	// back to IMSI-derived checkcode.
+	IMEI string
 
 	// IPStack controls which IP stack the IKE/IPsec tunnel uses.
 	// "ipv4", "ipv6", "ipv4v6". Empty = auto (both).

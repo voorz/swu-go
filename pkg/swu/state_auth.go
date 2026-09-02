@@ -56,19 +56,25 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 		logger.String("cfg_mnc", s.cfg.MNC))
 
 	// 1b. CP (CFG_REQUEST)
-	ipv6Req := make([]byte, net.IPv6len+1)
-	ipv6Req[net.IPv6len] = 64
-	cpPayload := &ikev2.EncryptedPayloadCP{
-		CFGType: ikev2.CFG_REQUEST,
-		Attributes: []*ikev2.CPAttribute{
-			{Type: ikev2.INTERNAL_IP4_ADDRESS},
-			{Type: ikev2.INTERNAL_IP4_DNS},
-			{Type: ikev2.P_CSCF_IP4_ADDRESS},
-			{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
-			{Type: ikev2.INTERNAL_IP6_DNS},
-			{Type: ikev2.P_CSCF_IP6_ADDRESS},
-			{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
-		},
+	// Controlled by cfg.CPInFirstAuth: nil or true = send CP, false = omit.
+	// Some ePDGs (e.g. 3HK) reject IKE_AUTH when CP is present in the first message.
+	sendCP := s.cfg.CPInFirstAuth == nil || *s.cfg.CPInFirstAuth
+	var cpPayload *ikev2.EncryptedPayloadCP
+	if sendCP {
+		ipv6Req := make([]byte, net.IPv6len+1)
+		ipv6Req[net.IPv6len] = 64
+		cpPayload = &ikev2.EncryptedPayloadCP{
+			CFGType: ikev2.CFG_REQUEST,
+			Attributes: []*ikev2.CPAttribute{
+				{Type: ikev2.INTERNAL_IP4_ADDRESS},
+				{Type: ikev2.INTERNAL_IP4_DNS},
+				{Type: ikev2.P_CSCF_IP4_ADDRESS},
+				{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
+				{Type: ikev2.INTERNAL_IP6_DNS},
+				{Type: ikev2.P_CSCF_IP6_ADDRESS},
+				{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
+			},
+		}
 	}
 
 	// 2. SA (Child SA)
@@ -113,13 +119,17 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 		NotifyType: ikev2.MOBIKE_SUPPORTED,
 	}
 
-	// RFC 5723 Session Resumption — disabled: some ePDGs reject IKE_AUTH when
-	// TICKET_REQUEST is present (observed with Three UK ePDG → EAP-Failure).
-	// s.Logger.Debug(s.pfx("正在组装第一包 IKE_AUTH，已插入 TICKET_REQUEST 凭证索求 Notify"))
-	// ticketReqPayload := &ikev2.EncryptedPayloadNotify{
-	// 	ProtocolID: 0,
-	// 	NotifyType: ikev2.TICKET_REQUEST,
-	// }
+	// RFC 5723 Session Resumption — TICKET_REQUEST.
+	// Controlled by cfg.TicketRequestEnabled: nil or false = disabled (default),
+	// true = enabled (e.g. 3HK ePDG requires it for session resumption).
+	var ticketReqPayload *ikev2.EncryptedPayloadNotify
+	if s.cfg.TicketRequestEnabled != nil && *s.cfg.TicketRequestEnabled {
+		s.Logger.Debug(s.pfx("正在组装第一包 IKE_AUTH，已插入 TICKET_REQUEST 凭证索求 Notify"))
+		ticketReqPayload = &ikev2.EncryptedPayloadNotify{
+			ProtocolID:   0,
+			NotifyType:   ikev2.TICKET_REQUEST,
+		}
+	}
 
 	// RFC 7296 §2.4: INITIAL_CONTACT — 告知 ePDG 清除此身份关联的所有旧 IKE SA
 	// 防止断网未发 DELETE 导致的僵尸半开隧道占用路由资源
@@ -129,7 +139,16 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	}
 	s.Logger.Debug(s.pfx("IKE_AUTH 已注入 INITIAL_CONTACT，要求 ePDG 清理旧隧道残留"))
 
-	payloads := []ikev2.Payload{idPayload, idrPayload, cpPayload, saPayload, tsPayloadI, tsPayloadR, mobikePayload, initialContactPayload}
+	// Build payload list: IDi, IDr, [CP], SAi2, TSi, TSr, N(MOBIKE), [N(TICKET_REQUEST)], N(INITIAL_CONTACT)
+	payloads := []ikev2.Payload{idPayload, idrPayload}
+	if cpPayload != nil {
+		payloads = append(payloads, cpPayload)
+	}
+	payloads = append(payloads, saPayload, tsPayloadI, tsPayloadR, mobikePayload)
+	if ticketReqPayload != nil {
+		payloads = append(payloads, ticketReqPayload)
+	}
+	payloads = append(payloads, initialContactPayload)
 	// DEVICE_IDENTITY notify: default disabled (v1.5.5 baseline device_identity_present=false).
 	// Per-carrier override via cfg.DeviceIdentityEnabled.
 	if s.cfg.DeviceIdentityEnabled != nil && *s.cfg.DeviceIdentityEnabled {
@@ -374,11 +393,11 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			if err != nil {
 				return nil, err
 			}
-			if s.cfg.DisableEAPMACValidation {
+			if !s.cfg.EAPMACValidation {
 				kAut = kAutTry
 				msk = mskTry
 				macVerified = true
-				s.Logger.Debug(s.pfx("EAP-AKA 跳过 AT_MAC 验证 (DisableEAPMACValidation=true)"),
+				s.Logger.Debug(s.pfx("EAP-AKA 跳过 AT_MAC 验证 (EAPMACValidation=false)"),
 					logger.Int("order", order))
 				break
 			}
@@ -398,37 +417,10 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		s.MSK = msk
 		s.eapKAut = append([]byte(nil), kAut...)
 
-		// 构造响应：AT_RES [+ 非标属性回显] [+ AT_RESULT_IND] + AT_MAC
-		respAttrs := []byte{}
+		// 构造响应属性（根据 AKAChallengeMode 差异化）
+		respAttrs := s.buildChallengeResponseAttrs(attrs, res, kAut, pkt)
 
-		// AT_RES
-		resBits := make([]byte, 2)
-		binary.BigEndian.PutUint16(resBits, uint16(len(res)*8))
-		resValue := append(resBits, res...)
-		atRes := &eap.Attribute{Type: eap.AT_RES, Value: resValue}
-		respAttrs = append(respAttrs, atRes.Encode()...)
-
-		// 回显非标属性 (0x86/134 等)，某些 ePDG (如 CSL HK) 要求客户端回显
-		for attrType, attrVal := range attrs {
-			if attrType == eap.AT_RAND || attrType == eap.AT_AUTN || attrType == eap.AT_MAC ||
-				attrType == eap.AT_RESULT_IND || attrType == eap.AT_RES {
-				continue // 跳过标准属性
-			}
-			// 回显非标属性
-			s.Logger.Debug(s.pfx("Challenge Response 回显非标属性"),
-				logger.Int("attr_type", int(attrType)),
-				logger.Int("attr_value_len", len(attrVal.Value)))
-			echoAttr := &eap.Attribute{Type: attrType, Value: attrVal.Value}
-			respAttrs = append(respAttrs, echoAttr.Encode()...)
-		}
-
-		if _, ok := attrs[eap.AT_RESULT_IND]; ok {
-			atResultInd := &eap.Attribute{Type: eap.AT_RESULT_IND, Value: []byte{0, 0}}
-			respAttrs = append(respAttrs, atResultInd.Encode()...)
-		}
-
-		// AT_MAC
-		// 初始值为 16 字节零
+		// AT_MAC — always last, initial value is 16 zero bytes
 		respMacAttr := &eap.Attribute{Type: eap.AT_MAC, Value: make([]byte, 18)}
 		macOffset := len(respAttrs) // AT_MAC 属性开始的位置
 		respAttrs = append(respAttrs, respMacAttr.Encode()...)
@@ -451,7 +443,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			logger.Int("res_len_bytes", len(res)),
 			logger.String("res_hex", hex.EncodeToString(res)),
 			logger.String("kAut_hex", hex.EncodeToString(kAut)),
-			logger.Bool("mac_validation_skipped", s.cfg.DisableEAPMACValidation),
+			logger.Bool("mac_validation_skipped", !s.cfg.EAPMACValidation),
 		)
 
 		// 计算 MAC
@@ -637,7 +629,7 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !s.cfg.DisableEAPMACValidation {
+		if s.cfg.EAPMACValidation {
 			if err := verifyEAPAKAPrimeMAC(eapRaw, pkt.Data, kAut, recvMac); err != nil {
 				return nil, fmt.Errorf("AKA' MAC 校验失败: %v", err)
 			}
@@ -1090,7 +1082,7 @@ func (s *Session) sendIKEAuthFinal() error {
 }
 
 func (s *Session) buildIKEAuthFinalPayloads() ([]ikev2.Payload, error) {
-	// Message 6: SK { AUTH }
+	// Message 6: SK { [CP], AUTH }
 	// AUTH = prf( prf(MSK, "Key Pad for IKEv2"), <SignedOctets> )
 	// SignedOctets = RealMessage1 | NonceR_Data | prf(SK_pi, IDi_Body)
 	if len(s.MSK) == 0 {
@@ -1100,7 +1092,36 @@ func (s *Session) buildIKEAuthFinalPayloads() ([]ikev2.Payload, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []ikev2.Payload{authPayload}, nil
+
+	payloads := []ikev2.Payload{authPayload}
+
+	// If CP was not sent in the first IKE_AUTH (cp_in_first_auth=false),
+	// include CP(CFG_REQUEST) in the final AUTH message so the ePDG
+	// returns IP/DNS/P-CSCF configuration.
+	// When CP was already sent in the first message, the ePDG response
+	// to the final AUTH already carries CP(CFG_REPLY).
+	sendCPInFinal := s.cfg.CPInFirstAuth != nil && !*s.cfg.CPInFirstAuth
+	if sendCPInFinal {
+		ipv6Req := make([]byte, net.IPv6len+1)
+		ipv6Req[net.IPv6len] = 64
+		cpPayload := &ikev2.EncryptedPayloadCP{
+			CFGType: ikev2.CFG_REQUEST,
+			Attributes: []*ikev2.CPAttribute{
+				{Type: ikev2.INTERNAL_IP4_ADDRESS},
+				{Type: ikev2.INTERNAL_IP4_DNS},
+				{Type: ikev2.P_CSCF_IP4_ADDRESS},
+				{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
+				{Type: ikev2.INTERNAL_IP6_DNS},
+				{Type: ikev2.P_CSCF_IP6_ADDRESS},
+				{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
+			},
+		}
+		// CP goes before AUTH
+		payloads = append([]ikev2.Payload{cpPayload}, payloads...)
+		s.Logger.Debug(s.pfx("最终 AUTH 消息附加 CP(CFG_REQUEST)（首轮未发 CP）"))
+	}
+
+	return payloads, nil
 }
 
 func (s *Session) handleIKEAuthFinalResp(data []byte) error {
