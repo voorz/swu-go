@@ -170,6 +170,16 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 		return nil, err
 	}
 
+	// [debug] 打印发送的 SA_INIT 请求包 hex（用于对比社区版）
+	reqHex := hex.EncodeToString(data)
+	if len(reqHex) > 2048 {
+		reqHex = reqHex[:2048] + "..."
+	}
+	s.Logger.Debug(s.pfx("发送 IKE_SA_INIT 请求"),
+		logger.Int("len", len(data)),
+		logger.Bool("has_cookie", s.sendCookie),
+		logger.String("hex", reqHex))
+
 	s.msgBuffer = data
 	return data, nil
 }

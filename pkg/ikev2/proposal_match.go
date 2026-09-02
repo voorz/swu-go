@@ -165,8 +165,8 @@ func (pm *ProposalMatcher) isAEAD(encr AlgorithmType) bool {
 	}
 }
 
-// CreateMultiProposalIKE 创建涵盖高、中、低兼容级别的 IKE 提议
-// 前 3 个对齐社区版（AES-CBC + DH2048），后 2 个保留为兼容兜底
+// CreateMultiProposalIKE 创建 IKE 提议，对齐社区版
+// 3 个提议全部 AES-CBC + DH2048，避免 ePDG 因不支持的算法/DH 组而拒绝
 func CreateMultiProposalIKE(spi []byte) []*Proposal {
 	proposals := []*Proposal{}
 	pNum := uint8(1)
@@ -196,23 +196,6 @@ func CreateMultiProposalIKE(spi []byte) []*Proposal {
 	prop3.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_512, 0)
 	prop3.AddTransform(TransformTypeDH, MODP_2048_bit, 0)
 	proposals = append(proposals, prop3)
-	pNum++
-
-	// 提议 4: 高安全组 (AES-GCM-256 + SHA384 + DH3072) — 兼容兜底
-	prop4 := NewProposal(pNum, ProtoIKE, spi)
-	prop4.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_GCM_16, 256)
-	prop4.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_384, 0)
-	prop4.AddTransform(TransformTypeDH, MODP_3072_bit, 0)
-	proposals = append(proposals, prop4)
-	pNum++
-
-	// 提议 5: 远古兜底兼容组 (AES-CBC-128 + SHA1 + DH1024)
-	prop5 := NewProposal(pNum, ProtoIKE, spi)
-	prop5.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 128)
-	prop5.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA1_96, 0)
-	prop5.AddTransform(TransformTypePRF, PRF_HMAC_SHA1, 0)
-	prop5.AddTransform(TransformTypeDH, MODP_1024_bit, 0)
-	proposals = append(proposals, prop5)
 
 	return proposals
 }
