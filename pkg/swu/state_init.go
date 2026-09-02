@@ -158,9 +158,10 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 	payloads := []ikev2.Payload{saPayload, kePayload, noncePayload}
 	if s.sendCookie && len(s.cookie) > 0 {
 		payloads = append(payloads, &ikev2.EncryptedPayloadNotify{
-			ProtocolID: 0,
-			NotifyType: ikev2.COOKIE,
-			NotifyData: s.cookie,
+			ProtocolID:   0,
+			NotifyType:   ikev2.COOKIE,
+			NotifyData:   s.cookie,
+			OverrideType: ikev2.SA, // 社区版兼容: COOKIE payload 用 SA 类型
 		})
 	}
 	payloads = append(payloads, natSrcPayload, natDstPayload, fragNotify)

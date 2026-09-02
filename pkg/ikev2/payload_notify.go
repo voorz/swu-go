@@ -7,13 +7,19 @@ import (
 
 // 通知载荷 (RFC 7296 3.10 节)
 type EncryptedPayloadNotify struct {
-	ProtocolID ProtocolID
-	SPI        []byte
-	NotifyType uint16
-	NotifyData []byte
+	ProtocolID   ProtocolID
+	SPI          []byte
+	NotifyType   uint16
+	NotifyData   []byte
+	OverrideType PayloadType // 非零时覆盖默认 Notify 类型（社区版兼容）
 }
 
-func (p *EncryptedPayloadNotify) Type() PayloadType { return N }
+func (p *EncryptedPayloadNotify) Type() PayloadType {
+	if p.OverrideType != 0 {
+		return p.OverrideType
+	}
+	return N
+}
 
 func (p *EncryptedPayloadNotify) Encode() ([]byte, error) {
 	// 头部: 1 协议 ID + 1 SPI 大小 + 2 通知类型 + SPI + 数据
