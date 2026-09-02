@@ -369,6 +369,8 @@ func (s *Session) connectOnce() error {
 
 	if !resumed {
 		// 2. IKE_SA_INIT
+		cookieRetries := 0
+		const maxCookieRetries = 5
 		for {
 			reqData, err := s.buildIKESAInitPacket()
 			if err != nil {
@@ -390,9 +392,14 @@ func (s *Session) connectOnce() error {
 			}
 
 			if err := s.handleIKESAInitResp(respData); err != nil {
-				if errors.Is(err, ErrCookieRequired) {
-					continue
+			if errors.Is(err, ErrCookieRequired) {
+				cookieRetries++
+				if cookieRetries > maxCookieRetries {
+					return fmt.Errorf("IKE_SA_INIT: COOKIE 重试超过上限 (%d)，ePDG 持续拒绝", maxCookieRetries)
 				}
+				s.Logger.Debug(s.pfx("COOKIE 重试"), logger.Int("attempt", cookieRetries), logger.Int("max", maxCookieRetries))
+				continue
+			}
 				if errors.Is(err, ErrInvalidKEPayload) {
 					// ePDG 要求使用不同的 DH 组，重新生成 KE 并重发
 					continue
