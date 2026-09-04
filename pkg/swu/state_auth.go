@@ -62,20 +62,26 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	sendCP := s.cfg.CPInFirstAuth == nil || *s.cfg.CPInFirstAuth
 	var cpPayload *ikev2.EncryptedPayloadCP
 	if sendCP {
-		ipv6Req := make([]byte, net.IPv6len+1)
-		ipv6Req[net.IPv6len] = 64
+		attrs := []*ikev2.CPAttribute{
+			{Type: ikev2.INTERNAL_IP4_ADDRESS},
+			{Type: ikev2.INTERNAL_IP4_DNS},
+			{Type: ikev2.P_CSCF_IP4_ADDRESS},
+			{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS}, // 3GPP TS 24.302 扩展: 16384
+		}
+		// IPv6 属性仅在 ip_stack 为 ipv6 或 ipv4v6 时请求
+		if s.cfg.IPStack == "" || s.cfg.IPStack == "ipv6" || s.cfg.IPStack == "ipv4v6" {
+			ipv6Req := make([]byte, net.IPv6len+1)
+			ipv6Req[net.IPv6len] = 64
+			attrs = append(attrs,
+				&ikev2.CPAttribute{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
+				&ikev2.CPAttribute{Type: ikev2.INTERNAL_IP6_DNS},
+				&ikev2.CPAttribute{Type: ikev2.P_CSCF_IP6_ADDRESS},
+				&ikev2.CPAttribute{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS}, // 3GPP TS 24.302 扩展: 16386
+			)
+		}
 		cpPayload = &ikev2.EncryptedPayloadCP{
 			CFGType: ikev2.CFG_REQUEST,
-			Attributes: []*ikev2.CPAttribute{
-				{Type: ikev2.INTERNAL_IP4_ADDRESS},
-				{Type: ikev2.INTERNAL_IP4_DNS},
-				{Type: ikev2.P_CSCF_IP4_ADDRESS},
-				{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS}, // 3GPP TS 24.302 扩展: 16384
-				{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
-				{Type: ikev2.INTERNAL_IP6_DNS},
-				{Type: ikev2.P_CSCF_IP6_ADDRESS},
-				{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS}, // 3GPP TS 24.302 扩展: 16386
-			},
+			Attributes: attrs,
 		}
 		s.Logger.Debug(s.pfx("第一包 IKE_AUTH 已携带 CP(CFG_REQUEST)（cp_in_first_auth=true，含 3GPP 扩展 P-CSCF 属性）"))
 	} else {
@@ -1173,20 +1179,26 @@ func (s *Session) buildIKEAuthFinalPayloads() ([]ikev2.Payload, error) {
 	sendFinalCP := s.cfg.CPInFinalAuth == nil || *s.cfg.CPInFinalAuth
 	cpNotInFirst := s.cfg.CPInFirstAuth != nil && !*s.cfg.CPInFirstAuth
 	if cpNotInFirst && sendFinalCP {
-		ipv6Req := make([]byte, net.IPv6len+1)
-		ipv6Req[net.IPv6len] = 64
+		attrs := []*ikev2.CPAttribute{
+			{Type: ikev2.INTERNAL_IP4_ADDRESS},
+			{Type: ikev2.INTERNAL_IP4_DNS},
+			{Type: ikev2.P_CSCF_IP4_ADDRESS},
+			{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS},
+		}
+		// IPv6 属性仅在 ip_stack 为 ipv6 或 ipv4v6 时请求
+		if s.cfg.IPStack == "" || s.cfg.IPStack == "ipv6" || s.cfg.IPStack == "ipv4v6" {
+			ipv6Req := make([]byte, net.IPv6len+1)
+			ipv6Req[net.IPv6len] = 64
+			attrs = append(attrs,
+				&ikev2.CPAttribute{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
+				&ikev2.CPAttribute{Type: ikev2.INTERNAL_IP6_DNS},
+				&ikev2.CPAttribute{Type: ikev2.P_CSCF_IP6_ADDRESS},
+				&ikev2.CPAttribute{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS},
+			)
+		}
 		cpPayload := &ikev2.EncryptedPayloadCP{
 			CFGType: ikev2.CFG_REQUEST,
-			Attributes: []*ikev2.CPAttribute{
-				{Type: ikev2.INTERNAL_IP4_ADDRESS},
-				{Type: ikev2.INTERNAL_IP4_DNS},
-				{Type: ikev2.P_CSCF_IP4_ADDRESS},
-				{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS},
-				{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
-				{Type: ikev2.INTERNAL_IP6_DNS},
-				{Type: ikev2.P_CSCF_IP6_ADDRESS},
-				{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS},
-			},
+			Attributes: attrs,
 		}
 		// CP 放在 AUTH 之前
 		payloads = append([]ikev2.Payload{cpPayload}, payloads...)
