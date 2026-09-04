@@ -17,6 +17,7 @@ import (
 	"github.com/voorz/swu-go/pkg/ipsec"
 	"github.com/voorz/swu-go/pkg/logger"
 	"github.com/voorz/swu-go/pkg/sim"
+	"go.uber.org/zap"
 )
 
 func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
@@ -68,13 +69,17 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 			Attributes: []*ikev2.CPAttribute{
 				{Type: ikev2.INTERNAL_IP4_ADDRESS},
 				{Type: ikev2.INTERNAL_IP4_DNS},
-			{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS},
-			{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
-			{Type: ikev2.INTERNAL_IP6_DNS},
-			{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS},
-			{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
+				{Type: ikev2.P_CSCF_IP4_ADDRESS},
+				{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS}, // 3GPP TS 24.302 扩展: 16384
+				{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
+				{Type: ikev2.INTERNAL_IP6_DNS},
+				{Type: ikev2.P_CSCF_IP6_ADDRESS},
+				{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS}, // 3GPP TS 24.302 扩展: 16386
 			},
 		}
+		s.Logger.Debug(s.pfx("第一包 IKE_AUTH 已携带 CP(CFG_REQUEST)（cp_in_first_auth=true，含 3GPP 扩展 P-CSCF 属性）"))
+	} else {
+		s.Logger.Debug(s.pfx("第一包 IKE_AUTH 未携带 CP（cp_in_first_auth=false）"))
 	}
 
 	// 2. SA (Child SA)
@@ -91,11 +96,39 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 		binary.BigEndian.PutUint32(spiBytes, s.childSPI)
 	}
 
-	// 利用工厂方法生成覆盖高、中、低兼容性以及 ESN 处理的 Proposal 支持列表
-	proposals := ikev2.CreateMultiProposalESP(spiBytes)
+	// 提议可配置化：优先用运营商 profile 的 ESPProposals，为空回退默认大而全
+	proposalSource := "custom"
+	proposals, err := ikev2.ParseESPProposals(s.cfg.ESPProposals, spiBytes)
+	if err != nil {
+		s.Logger.Warn(s.pfx("ESP 提议配置解析失败，回退默认提议"), logger.Err(err))
+		proposals, _ = ikev2.ParseESPProposals(nil, spiBytes)
+		proposalSource = "default"
+	}
+	if len(s.cfg.ESPProposals) == 0 {
+		proposalSource = "default"
+	}
 
-	// 如果用户级配置指定了只发开启 ESN，则后续可在此二次过滤
-	// 但默认状态我们发送大而全的列表
+	// 根据 EnableESN 配置追加 ESN=1 transform (esn=auto 语义: 同时提供 ESN 和 NO_ESN)
+	// 注意: PFS DH transform 不在初始 IKE_AUTH 中添加，仅在 CREATE_CHILD_SA (rekey) 中使用
+	// 对齐社区版 child_sa_proposals: rekey_pfs=14 (rekey 时 PFS, 不是初始建立时)
+	if s.cfg.EnableESN {
+		for _, prop := range proposals {
+			// parseESPProposal 已添加 ESN=0, 这里追加 ESN=1 让 ePDG 选择
+			prop.AddTransform(ikev2.TransformTypeESN, 1, 0)
+		}
+	}
+
+	// 构建实际使用的提议描述列表
+	proposalDescs := make([]string, len(proposals))
+	for i, p := range proposals {
+		proposalDescs[i] = p.Describe()
+	}
+	s.Logger.Debug(s.pfx("ESP SA 提议已生成"),
+		logger.Int("count", len(proposals)),
+		logger.String("source", proposalSource),
+		zap.Strings("proposals", proposalDescs),
+		logger.Int("rekey_pfs", s.cfg.ESPRekeyPFS),
+		logger.Bool("enable_esn", s.cfg.EnableESN))
 	saPayload := &ikev2.EncryptedPayloadSA{
 		Proposals: proposals,
 	}
@@ -1059,6 +1092,24 @@ func (s *Session) buildEAPSyncFailure(id uint8, auts []byte) ([]ikev2.Payload, e
 }
 
 func (s *Session) sendIKEAuthEAP(payloads []ikev2.Payload) error {
+	// DEBUG: dump raw payloads before encryption
+	payloadNames := map[ikev2.PayloadType]string{
+		ikev2.IDi: "IDi", ikev2.IDr: "IDr", ikev2.CP: "CP",
+		ikev2.SA: "SA", ikev2.TSI: "TSi", ikev2.TSR: "TSr",
+		ikev2.N: "NOTIFY", ikev2.AUTH: "AUTH", ikev2.EAP: "EAP",
+	}
+	for _, p := range payloads {
+		pname := payloadNames[p.Type()]
+		raw, _ := p.Encode()
+		s.Logger.Debug(s.pfx("IKE_AUTH 明文载荷"),
+			logger.String("type", pname),
+			logger.Int("type_id", int(p.Type())),
+			logger.Int("len", len(raw)),
+			logger.String("hex", hex.EncodeToString(raw)),
+		)
+	}
+	// END DEBUG
+
 	// 包装载荷在 SK 中
 	data, err := s.encryptAndWrap(payloads, ikev2.IKE_AUTH, false)
 	if err != nil {
@@ -1072,6 +1123,24 @@ func (s *Session) sendIKEAuthFinal() error {
 	if err != nil {
 		return err
 	}
+
+	// DEBUG: dump raw payloads before encryption
+	payloadNames := map[ikev2.PayloadType]string{
+		ikev2.IDi: "IDi", ikev2.IDr: "IDr", ikev2.CP: "CP",
+		ikev2.SA: "SA", ikev2.TSI: "TSi", ikev2.TSR: "TSr",
+		ikev2.N: "NOTIFY", ikev2.AUTH: "AUTH", ikev2.EAP: "EAP",
+	}
+	for _, p := range payloads {
+		pname := payloadNames[p.Type()]
+		raw, _ := p.Encode()
+		s.Logger.Debug(s.pfx("IKE_AUTH_FINAL 明文载荷"),
+			logger.String("type", pname),
+			logger.Int("type_id", int(p.Type())),
+			logger.Int("len", len(raw)),
+			logger.String("hex", hex.EncodeToString(raw)),
+		)
+	}
+	// END DEBUG
 
 	data, err := s.encryptAndWrap(payloads, ikev2.IKE_AUTH, false)
 	if err != nil {
@@ -1095,13 +1164,15 @@ func (s *Session) buildIKEAuthFinalPayloads() ([]ikev2.Payload, error) {
 
 	payloads := []ikev2.Payload{authPayload}
 
-	// If CP was not sent in the first IKE_AUTH (cp_in_first_auth=false),
-	// include CP(CFG_REQUEST) in the final AUTH message so the ePDG
-	// returns IP/DNS/P-CSCF configuration.
-	// When CP was already sent in the first message, the ePDG response
-	// to the final AUTH already carries CP(CFG_REPLY).
-	sendCPInFinal := s.cfg.CPInFirstAuth != nil && !*s.cfg.CPInFirstAuth
-	if sendCPInFinal {
+	// 当第一包 IKE_AUTH 未携带 CP 时，根据 CPInFinalAuth 配置决定是否在最终 AUTH 消息中附加 CP(CFG_REQUEST)。
+	// 默认 (nil 或 true): 发送 CP(CFG_REQUEST) 向 ePDG 请求 IP/DNS/P-CSCF 配置。
+	// false: 不发送 CP，依赖 ePDG 自动返回 CP(CFG_REPLY)（社区版 3HK 行为）。
+	// 关键：3HK ePDG 使用 3GPP TS 24.302 扩展属性标识符返回 P-CSCF：
+	//   ASSIGNED_PCSCF_IP4_ADDRESS  = 16384
+	//   ASSIGNED_PCSCF_IPV6_ADDRESS = 16386
+	sendFinalCP := s.cfg.CPInFinalAuth == nil || *s.cfg.CPInFinalAuth
+	cpNotInFirst := s.cfg.CPInFirstAuth != nil && !*s.cfg.CPInFirstAuth
+	if cpNotInFirst && sendFinalCP {
 		ipv6Req := make([]byte, net.IPv6len+1)
 		ipv6Req[net.IPv6len] = 64
 		cpPayload := &ikev2.EncryptedPayloadCP{
@@ -1109,16 +1180,17 @@ func (s *Session) buildIKEAuthFinalPayloads() ([]ikev2.Payload, error) {
 			Attributes: []*ikev2.CPAttribute{
 				{Type: ikev2.INTERNAL_IP4_ADDRESS},
 				{Type: ikev2.INTERNAL_IP4_DNS},
-			{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS},
-			{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
-			{Type: ikev2.INTERNAL_IP6_DNS},
-			{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS},
-			{Type: ikev2.ASSIGNED_PCSCF_IP6_ADDRESS},
+				{Type: ikev2.P_CSCF_IP4_ADDRESS},
+				{Type: ikev2.ASSIGNED_PCSCF_IP4_ADDRESS},
+				{Type: ikev2.INTERNAL_IP6_ADDRESS, Value: ipv6Req},
+				{Type: ikev2.INTERNAL_IP6_DNS},
+				{Type: ikev2.P_CSCF_IP6_ADDRESS},
+				{Type: ikev2.ASSIGNED_PCSCF_IPV6_ADDRESS},
 			},
 		}
-		// CP goes before AUTH
+		// CP 放在 AUTH 之前
 		payloads = append([]ikev2.Payload{cpPayload}, payloads...)
-		s.Logger.Debug(s.pfx("最终 AUTH 消息附加 CP(CFG_REQUEST)（首轮未发 CP）"))
+		s.Logger.Debug(s.pfx("最终 AUTH 消息附加 CP(CFG_REQUEST)（含 3GPP 扩展 P-CSCF 属性）"))
 	}
 
 	return payloads, nil
@@ -1335,6 +1407,16 @@ func (s *Session) handleIKEAuthFinalResp(data []byte) error {
 				types = append(types, int(a.Type))
 			}
 			s.Logger.Debug(s.pfx("CP 属性类型"), logger.Any("types", types))
+			// 调试：打印每个 CP 属性的原始数据
+			for _, a := range cpPayload.Attributes {
+				if a == nil {
+					continue
+				}
+				s.Logger.Debug(s.pfx("CP 属性原始数据"),
+					logger.Int("type", int(a.Type)),
+					logger.Int("value_len", len(a.Value)),
+					logger.String("value_hex", fmt.Sprintf("%x", a.Value)))
+			}
 		}
 		s.cpConfig = ikev2.ParseCPConfig(cpPayload)
 		if s.cpConfig != nil {

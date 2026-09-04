@@ -71,6 +71,12 @@ type Config struct {
 	IKEProposals []string
 	ESPProposals []string
 
+	// ESPRekeyPFS controls PFS (Perfect Forward Secrecy) for Child SA.
+	// Set to a DH group number (e.g. 14 for MODP-2048) to include a DH
+	// transform in ESP proposals during IKE_AUTH and CREATE_CHILD_SA.
+	// 0 = disabled (no PFS). This aligns with strongSwan's rekey_pfs option.
+	ESPRekeyPFS int
+
 	// --- 运营商预设字段 (v1.5.5 YAML carrier presets) ---
 
 	// DPDInterval is the Dead Peer Detection interval in seconds.
@@ -102,6 +108,13 @@ type Config struct {
 	// Pointer to false allows carriers whose ePDG rejects CP in the first AUTH.
 	CPInFirstAuth *bool
 
+	// CPInFinalAuth controls whether CP(CFG_REQUEST) is included in the final
+	// AUTH message (after EAP Success, before Child SA creation).
+	// nil = default (true, send CP in final AUTH when CP was not sent in first AUTH).
+	// Pointer to false allows carriers whose ePDG auto-returns CP(CFG_REPLY)
+	// without being asked (e.g. 3HK community behavior).
+	CPInFinalAuth *bool
+
 	// EAPIdentity overrides the NAI used for EAP-AKA. When non-empty, this
 	// takes priority over the IMSI-derived NAI from buildNAI(). This is
 	// how a provisioned ISIM IMPI (e.g. "user@ims.mnc003.mcc454.3gppnetwork.org")
@@ -131,4 +144,10 @@ type Config struct {
 	// IKERetryCount overrides the default IKE retransmission count.
 	// 0 = use default (5, aligned with strongSwan retransmit_tries).
 	IKERetryCount int
+
+	// CookiePayloadType controls the IKE payload type for COOKIE Notify in IKE_SA_INIT.
+	// RFC 7296 §2.6 标准为 Notify(41)，但少数 ePDG 要求 SA(33)。
+	// "notify" (默认) = 使用标准 N(41)
+	// "sa" = 使用 SA(33)，兼容某些非标 ePDG
+	CookiePayloadType string
 }

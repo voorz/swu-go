@@ -11,10 +11,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/voorz/swu-go/pkg/crypto"
 	"github.com/voorz/swu-go/pkg/ikev2"
 	"github.com/voorz/swu-go/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // ErrInvalidKEPayload 表示 ePDG 要求使用不同的 DH 组 (RFC 7296 §2.7)
@@ -73,8 +75,26 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 		}
 	}
 
-	// 使用高兼容性的工厂方法生成 Proposal
-	proposals := ikev2.CreateMultiProposalIKE(nil)
+	// 提议可配置化：优先用运营商 profile 的 IKEProposals，为空回退默认大而全
+	proposalSource := "custom"
+	proposals, err := ikev2.ParseIKEProposals(s.cfg.IKEProposals, nil)
+	if err != nil {
+		s.Logger.Warn(s.pfx("IKE 提议配置解析失败，回退默认提议"), logger.Err(err))
+		proposals, _ = ikev2.ParseIKEProposals(nil, nil)
+		proposalSource = "default"
+	}
+	if len(s.cfg.IKEProposals) == 0 {
+		proposalSource = "default"
+	}
+	// 构建实际使用的提议描述列表
+	proposalDescs := make([]string, len(proposals))
+	for i, p := range proposals {
+		proposalDescs[i] = p.Describe()
+	}
+	s.Logger.Debug(s.pfx("IKE SA 提议已生成"),
+		logger.Int("count", len(proposals)),
+		logger.String("source", proposalSource),
+		zap.Strings("proposals", proposalDescs))
 
 	saPayload := &ikev2.EncryptedPayloadSA{
 		Proposals: proposals,
@@ -157,12 +177,18 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 
 	payloads := []ikev2.Payload{saPayload, kePayload, noncePayload}
 	if s.sendCookie && len(s.cookie) > 0 {
-		payloads = append(payloads, &ikev2.EncryptedPayloadNotify{
-			ProtocolID:   0,
-			NotifyType:   ikev2.COOKIE,
-			NotifyData:   s.cookie,
-			OverrideType: ikev2.SA, // 社区版兼容: COOKIE payload 用 SA 类型
-		})
+		cookieNotify := &ikev2.EncryptedPayloadNotify{
+			ProtocolID: 0,
+			NotifyType: ikev2.COOKIE,
+			NotifyData: s.cookie,
+		}
+		// COOKIE Notify 载荷类型默认为标准 N(41)
+		// 少数非标 ePDG 要求 SA(33)，可通过配置 cookie_payload_type: "sa" 启用
+		if strings.ToLower(s.cfg.CookiePayloadType) == "sa" {
+			cookieNotify.OverrideType = ikev2.SA
+			s.Logger.Debug(s.pfx("COOKIE 载荷类型已设为 SA(33)（非标兼容模式）"))
+		}
+		payloads = append(payloads, cookieNotify)
 	}
 	payloads = append(payloads, natSrcPayload, natDstPayload, fragNotify)
 

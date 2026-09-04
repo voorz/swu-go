@@ -165,77 +165,9 @@ func (pm *ProposalMatcher) isAEAD(encr AlgorithmType) bool {
 	}
 }
 
-// CreateMultiProposalIKE 创建 IKE 提议，对齐社区版
-// 3 个提议全部 AES-CBC + DH2048，避免 ePDG 因不支持的算法/DH 组而拒绝
-func CreateMultiProposalIKE(spi []byte) []*Proposal {
-	proposals := []*Proposal{}
-	pNum := uint8(1)
-
-	// 提议 1: AES-CBC-128 + SHA256 + DH2048
-	prop1 := NewProposal(pNum, ProtoIKE, spi)
-	prop1.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 128)
-	prop1.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_256_128, 0)
-	prop1.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_256, 0)
-	prop1.AddTransform(TransformTypeDH, MODP_2048_bit, 0)
-	proposals = append(proposals, prop1)
-	pNum++
-
-	// 提议 2: AES-CBC-256 + SHA256 + DH2048
-	prop2 := NewProposal(pNum, ProtoIKE, spi)
-	prop2.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 256)
-	prop2.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_256_128, 0)
-	prop2.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_256, 0)
-	prop2.AddTransform(TransformTypeDH, MODP_2048_bit, 0)
-	proposals = append(proposals, prop2)
-	pNum++
-
-	// 提议 3: AES-CBC-256 + SHA512 + DH2048
-	prop3 := NewProposal(pNum, ProtoIKE, spi)
-	prop3.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 256)
-	prop3.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_512_256, 0)
-	prop3.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_512, 0)
-	prop3.AddTransform(TransformTypeDH, MODP_2048_bit, 0)
-	proposals = append(proposals, prop3)
-
-	return proposals
-}
-
-// CreateMultiProposalESP 创建涵盖高、中、低兼容级别的 ESP 提议
-func CreateMultiProposalESP(spi []byte) []*Proposal {
-	proposals := []*Proposal{}
-	pNum := uint8(1)
-
-	// 提议 1: 高安全 (AES-GCM-256)
-	prop1 := NewProposal(pNum, ProtoESP, spi)
-	prop1.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_GCM_16, 256)
-	prop1.AddTransform(TransformTypeESN, 0, 0)
-	proposals = append(proposals, prop1)
-	pNum++
-
-	// 提议 2: 主流安全 (AES-GCM-128)
-	prop2 := NewProposal(pNum, ProtoESP, spi)
-	prop2.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_GCM_16, 128)
-	prop2.AddTransform(TransformTypeESN, 0, 0)
-	proposals = append(proposals, prop2)
-	pNum++
-
-	// 提议 3: 传统主流 (AES-CBC-128 + SHA256)
-	prop3 := NewProposal(pNum, ProtoESP, spi)
-	prop3.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 128)
-	prop3.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA2_256_128, 0)
-	prop3.AddTransform(TransformTypeESN, 0, 0)
-	proposals = append(proposals, prop3)
-	pNum++
-
-	// 提议 4: 远古兜底兼容组 (AES-CBC-128 + SHA1)
-	prop4 := NewProposal(pNum, ProtoESP, spi)
-	prop4.AddTransformWithKeyLen(TransformTypeEncr, ENCR_AES_CBC, 128)
-	prop4.AddTransform(TransformTypeInteg, AUTH_HMAC_SHA1_96, 0)
-	prop4.AddTransform(TransformTypeESN, 0, 0)
-	proposals = append(proposals, prop4)
-
-	return proposals
-}
+// 注: CreateMultiProposalIKE 和 CreateMultiProposalESP 已删除。
+// 提议生成统一走 proposal_parse.go 的 ParseIKEProposals / ParseESPProposals。
+// 当配置为空时，ParseIKEProposals/ParseESPProposals 内联默认大而全提议列表。
 
 // AddTransformWithKeyLen 添加带密钥长度属性的变换
 func (p *Proposal) AddTransformWithKeyLen(tType TransformType, tID AlgorithmType, keyLen int) {

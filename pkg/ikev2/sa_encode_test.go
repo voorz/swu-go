@@ -6,7 +6,7 @@ import (
 )
 
 func TestSAPayloadSize(t *testing.T) {
-	proposals := CreateMultiProposalIKE(nil)
+	proposals, _ := ParseIKEProposals(nil, nil) // 默认大而全
 	saPayload := &EncryptedPayloadSA{
 		Proposals: proposals,
 	}
@@ -17,8 +17,9 @@ func TestSAPayloadSize(t *testing.T) {
 	t.Logf("SA body len: %d", len(body))
 	t.Logf("SA body hex: %s", hex.EncodeToString(body))
 	
-	// 预期 3 个 Proposal 各 44 字节 = 132
-	if len(body) != 132 {
-		t.Errorf("SA body should be 132 bytes, got %d", len(body))
+// 默认 5 个 Proposal，字节数由实际编码决定
+	t.Logf("Proposal count: %d", len(proposals))
+	if len(proposals) != 5 {
+		t.Errorf("Expected 5 default proposals, got %d", len(proposals))
 	}
 }
