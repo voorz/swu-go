@@ -373,6 +373,10 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			return nil, err
 		}
 
+		// 保存 RAND/AUTN 供 IMS 预计算 AKA 复用
+		s.eapRand = append([]byte(nil), randVal...)
+		s.eapAutn = append([]byte(nil), autnVal...)
+
 		// 运行 SIM 算法
 		res, ck, ik, auts, err := s.cfg.SIM.CalculateAKA(randVal, autnVal)
 		if err != nil {
@@ -607,8 +611,12 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			return nil, err
 		}
 
-		// 运行 SIM 算法 (底层 AT+CSIM 与 4G 完全一样)
-		res, ck, ik, auts, err := s.cfg.SIM.CalculateAKA(randVal, autnVal)
+	// 保存 RAND/AUTN 供 IMS 预计算 AKA 复用
+	s.eapRand = append([]byte(nil), randVal...)
+	s.eapAutn = append([]byte(nil), autnVal...)
+
+	// 运行 SIM 算法 (底层 AT+CSIM 与 4G 完全一样)
+	res, ck, ik, auts, err := s.cfg.SIM.CalculateAKA(randVal, autnVal)
 		if err != nil {
 			if errors.Is(err, sim.ErrSyncFailure) {
 				return s.buildEAPSyncFailure(pkt.Identifier, auts)

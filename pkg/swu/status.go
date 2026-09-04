@@ -15,6 +15,9 @@ type SessionSnapshot struct {
 
 	PCSCFv4 []net.IP
 	PCSCFv6 []net.IP
+
+	EAPRand []byte // EAP-AKA Challenge RAND（供 IMS 预计算复用）
+	EAPAutn []byte // EAP-AKA Challenge AUTN（供 IMS 预计算复用）
 }
 
 func (s *Session) Snapshot() SessionSnapshot {
@@ -71,6 +74,12 @@ func (s *Session) Snapshot() SessionSnapshot {
 	}
 	if out.IPv6Prefix == 0 && out.IPv6 != nil {
 		out.IPv6Prefix = 64
+	}
+	if s.eapRand != nil {
+		out.EAPRand = append([]byte(nil), s.eapRand...)
+	}
+	if s.eapAutn != nil {
+		out.EAPAutn = append([]byte(nil), s.eapAutn...)
 	}
 	return out
 }
