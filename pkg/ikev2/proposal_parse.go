@@ -164,21 +164,34 @@ func PropESP_AES128GCM16(num uint8, spi []byte) *Proposal {
 // ParseIKEProposals 从字符串列表解析 IKE 提议。
 // 如果 specs 为空，返回默认大而全提议 (5 个，覆盖 GCM/CBC + SHA256/SHA1 + MODP 2048/1024)。
 // 如果 specs 非空，完全按用户配置生成，互不干扰。
-func ParseIKEProposals(specs []string, spi []byte) ([]*Proposal, error) {
+func ParseIKEProposals(specs []string, spi []byte, autoPRF bool) ([]*Proposal, error) {
 	if len(specs) == 0 {
-		// 默认兜底：大而全提议列表
-		return []*Proposal{
+		// 默认兜底：大而全提议列表（预设方法内部已硬编码 PRF Transform）
+		proposals := []*Proposal{
 			PropIKE_AES256GCM16_PRFSHA384_MODP3072(1, spi), // 高安全组
 			PropIKE_AES128GCM16_PRFSHA256_MODP2048(2, spi), // 主流安全组 (VoWiFi 常用)
 			PropIKE_AES256_SHA256_MODP2048(3, spi),         // 传统高安全组
 			PropIKE_AES128_SHA256_MODP2048(4, spi),         // 传统主流组
 			PropIKE_AES128_SHA1_MODP1024(5, spi),           // 远古兜底兼容组
-		}, nil
+		}
+		if !autoPRF {
+			// auto_prf=false: 移除所有 PRF Transform
+			for _, p := range proposals {
+				filtered := make([]*Transform, 0, len(p.Transforms))
+				for _, t := range p.Transforms {
+					if t.Type != TransformTypePRF {
+						filtered = append(filtered, t)
+					}
+				}
+				p.Transforms = filtered
+			}
+		}
+		return proposals, nil
 	}
 
 	proposals := make([]*Proposal, 0, len(specs))
 	for i, spec := range specs {
-		prop, err := parseIKEProposal(spec, uint8(i+1), spi)
+		prop, err := parseIKEProposal(spec, uint8(i+1), spi, autoPRF)
 		if err != nil {
 			return nil, fmt.Errorf("IKE proposal #%d %q: %w", i+1, spec, err)
 		}
@@ -216,7 +229,7 @@ func ParseESPProposals(specs []string, spi []byte) ([]*Proposal, error) {
 
 // parseIKEProposal 解析单个 IKE 提议字符串。
 // 格式: encr-integ[-prf]-dh，例如 "aes256-sha256-modp2048" 或 "aes256-sha256-prfsha512-modp2048"
-func parseIKEProposal(spec string, num uint8, spi []byte) (*Proposal, error) {
+func parseIKEProposal(spec string, num uint8, spi []byte, autoPRF bool) (*Proposal, error) {
 	parts := strings.Split(strings.TrimSpace(strings.ToLower(spec)), "-")
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("format: encr-integ[-prf]-dh, got %d parts", len(parts))
@@ -239,6 +252,7 @@ func parseIKEProposal(spec string, num uint8, spi []byte) (*Proposal, error) {
 
 	// 中间部分: integ 和可选的 prf
 	var integFound, prfFound bool
+	var integStr string
 	for _, part := range parts[1 : len(parts)-1] {
 		if strings.HasPrefix(part, "prf") {
 			prfAlg, err := parsePRF(part)
@@ -254,19 +268,24 @@ func parseIKEProposal(spec string, num uint8, spi []byte) (*Proposal, error) {
 			}
 			p.AddTransform(TransformTypeInteg, integAlg, 0)
 			integFound = true
+			integStr = part
 		}
 	}
 
-	// 如果没有显式 prf，从 integ 推导默认 prf
-	if !prfFound && integFound {
-		defaultPRF, err := defaultPRFFromInteg(parts[1])
+	// PRF Transform 在 IKE Proposal 中是可选的 (RFC 7296)。
+	//
+	// autoPRF=true (默认): 从 Integrity 算法自动推导 PRF Transform。
+	//   兼容要求显式 PRF 的 ePDG（如 3HK）。
+	//   不需要自动推导时设为 false，让 ePDG 从 Integrity 推导。
+	//
+	// AEAD 加密 (无 integ) 仍需要 PRF，默认使用 SHA256。
+	if !prfFound && autoPRF && integFound {
+		defaultPRF, err := defaultPRFFromInteg(integStr)
 		if err != nil {
 			return nil, fmt.Errorf("derive prf from integ: %w", err)
 		}
 		p.AddTransform(TransformTypePRF, defaultPRF, 0)
 	} else if !prfFound && !integFound {
-		// AEAD 加密没有 integ，但仍需要 PRF
-		// 默认使用 SHA256 PRF
 		p.AddTransform(TransformTypePRF, PRF_HMAC_SHA2_256, 0)
 	}
 
