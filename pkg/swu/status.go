@@ -18,6 +18,9 @@ type SessionSnapshot struct {
 
 	EAPRand []byte // EAP-AKA Challenge RAND（供 IMS 预计算复用）
 	EAPAutn []byte // EAP-AKA Challenge AUTN（供 IMS 预计算复用）
+	EAPRES  []byte // EAP-AKA Challenge RES（供 IMS eap_direct 模式复用）
+	EAPCK   []byte // EAP-AKA Challenge CK（供 IMS eap_direct 模式复用）
+	EAPIK   []byte // EAP-AKA Challenge IK（供 IMS eap_direct 模式复用）
 }
 
 func (s *Session) Snapshot() SessionSnapshot {
@@ -80,6 +83,15 @@ func (s *Session) Snapshot() SessionSnapshot {
 	}
 	if s.eapAutn != nil {
 		out.EAPAutn = append([]byte(nil), s.eapAutn...)
+	}
+	if s.eapRES != nil {
+		out.EAPRES = append([]byte(nil), s.eapRES...)
+	}
+	if s.eapCK != nil {
+		out.EAPCK = append([]byte(nil), s.eapCK...)
+	}
+	if s.eapIK != nil {
+		out.EAPIK = append([]byte(nil), s.eapIK...)
 	}
 	return out
 }

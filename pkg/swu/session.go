@@ -125,6 +125,9 @@ type Session struct {
 	eapKAut   []byte // EAP-AKA K_aut，用于 Notification 响应 MAC
 	eapRand   []byte // EAP-AKA Challenge 的 RAND（供 IMS 预计算复用）
 	eapAutn   []byte // EAP-AKA Challenge 的 AUTN（供 IMS 预计算复用）
+	eapRES    []byte // EAP-AKA Challenge 的 RES（供 IMS eap_direct 模式复用）
+	eapCK     []byte // EAP-AKA Challenge 的 CK（供 IMS eap_direct 模式复用）
+	eapIK     []byte // EAP-AKA Challenge 的 IK（供 IMS eap_direct 模式复用）
 
 	lastEncryptedMsg   []byte
 	lastEncryptedMsgID uint32
