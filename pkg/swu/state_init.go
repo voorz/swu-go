@@ -77,10 +77,10 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 
 	// 提议可配置化：优先用运营商 profile 的 IKEProposals，为空回退默认大而全
 	proposalSource := "custom"
-	proposals, err := ikev2.ParseIKEProposals(s.cfg.IKEProposals, nil)
+	proposals, err := ikev2.ParseIKEProposals(s.cfg.IKEProposals, nil, s.cfg.AutoPRF)
 	if err != nil {
 		s.Logger.Warn(s.pfx("IKE 提议配置解析失败，回退默认提议"), logger.Err(err))
-		proposals, _ = ikev2.ParseIKEProposals(nil, nil)
+		proposals, _ = ikev2.ParseIKEProposals(nil, nil, true)
 		proposalSource = "default"
 	}
 	if len(s.cfg.IKEProposals) == 0 {

@@ -150,4 +150,10 @@ type Config struct {
 	// "notify" (默认) = 使用标准 N(41)
 	// "sa" = 使用 SA(33)，兼容某些非标 ePDG
 	CookiePayloadType string
+
+	// AutoPRF controls whether to automatically derive the PRF Transform
+	// from the Integrity algorithm when no explicit PRF is configured.
+	// true (默认): 从 Integrity 算法自动推导 PRF（兼容要求显式 PRF 的 ePDG）。
+	// false: 不自动推导，让 ePDG 从 Integrity 推导 PRF。
+	AutoPRF bool
 }

@@ -6,7 +6,7 @@ import (
 )
 
 func TestSAPayloadSize(t *testing.T) {
-	proposals, _ := ParseIKEProposals(nil, nil) // 默认大而全
+	proposals, _ := ParseIKEProposals(nil, nil, true) // 默认大而全
 	saPayload := &EncryptedPayloadSA{
 		Proposals: proposals,
 	}
