@@ -133,8 +133,9 @@ type Session struct {
 	lastEncryptedMsgID uint32
 
 	// COOKIE 处理
-	cookie     []byte // ePDG 返回的 COOKIE
-	sendCookie bool   // 标记是否需要发送 COOKIE
+	cookie           []byte // ePDG 返回的 COOKIE
+	sendCookie       bool   // 标记是否需要发送 COOKIE
+	cookieRetryCount int    // COOKIE 重试次数（用于决定是否重置 Nonce/KE）
 
 	// INVALID_KE_PAYLOAD 处理 (RFC 7296 §2.7)
 	// ePDG 要求使用的 DH 组（0 表示未收到 INVALID_KE_PAYLOAD）
@@ -399,6 +400,7 @@ func (s *Session) connectOnce() error {
 			if err := s.handleIKESAInitResp(respData); err != nil {
 			if errors.Is(err, ErrCookieRequired) {
 				cookieRetries++
+				s.cookieRetryCount = cookieRetries
 				if cookieRetries > maxCookieRetries {
 					return fmt.Errorf("IKE_SA_INIT: COOKIE 重试超过上限 (%d)，ePDG 持续拒绝", maxCookieRetries)
 				}
