@@ -172,10 +172,10 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 		NotifyType: ikev2.IKEV2_FRAGMENTATION_SUPPORTED,
 	}
 
-	// 顺序: SA, KE, Nonce, [COOKIE], NAT_SRC, NAT_DST, FRAG
-	// 对齐社区版: NAT_SRC → NAT_DST → FRAG 在最后
+	// 顺序: [COOKIE], SA, KE, Nonce, NAT_SRC, NAT_DST, FRAG
+	// COOKIE 放在 SA 之前，部分 ePDG 要求 COOKIE 作为第一个 payload
 
-	payloads := []ikev2.Payload{saPayload, kePayload, noncePayload}
+	var payloads []ikev2.Payload
 	if s.sendCookie && len(s.cookie) > 0 {
 		cookieNotify := &ikev2.EncryptedPayloadNotify{
 			ProtocolID: 0,
@@ -190,6 +190,7 @@ func (s *Session) buildIKESAInitPacket() ([]byte, error) {
 		}
 		payloads = append(payloads, cookieNotify)
 	}
+	payloads = append(payloads, saPayload, kePayload, noncePayload)
 	payloads = append(payloads, natSrcPayload, natDstPayload, fragNotify)
 
 	packet := ikev2.NewIKEPacket()
