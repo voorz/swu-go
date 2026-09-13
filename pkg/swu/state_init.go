@@ -329,12 +329,12 @@ func (s *Session) handleIKESAInitResp(data []byte) error {
 			headHex = headHex[:128] + "..."
 		}
 		s.Logger.Error(s.pfx("SA_INIT 响应中缺少强制性载荷"),
-		logger.Bool("has_sa", saPayload != nil),
-		logger.Bool("has_ke", kePayload != nil),
-		logger.Bool("has_nonce", noncePayload != nil),
-		logger.Int("payload_count", len(packet.Payloads)),
-		logger.Any("payload_types", payloadTypes),
-		logger.String("raw_hex_head", headHex))
+			logger.Bool("has_sa", saPayload != nil),
+			logger.Bool("has_ke", kePayload != nil),
+			logger.Bool("has_nonce", noncePayload != nil),
+			logger.Int("payload_count", len(packet.Payloads)),
+			logger.Any("payload_types", payloadTypes),
+			logger.String("raw_hex_head", headHex))
 		return errors.New("SA_INIT 响应中缺少强制性载荷")
 	}
 

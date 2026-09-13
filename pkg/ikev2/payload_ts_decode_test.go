@@ -39,4 +39,3 @@ func TestDecodePayloadTSRoundTripIPv4(t *testing.T) {
 		t.Fatalf("end addr mismatch: %s", net.IP(decoded.TrafficSelectors[1].EndAddr).String())
 	}
 }
-

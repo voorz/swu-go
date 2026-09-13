@@ -119,6 +119,13 @@ func (s *Session) startNetstackDataPlaneLoop() {
 					continue
 				}
 				espSendCount++
+				s.Logger.Debug(s.pfx("netstack ESP 出站已发送"),
+					logger.Uint64("txCount", txCount),
+					logger.Uint64("espSendCount", espSendCount),
+					logger.String("dstIP", dstIP),
+					logger.Int("proto", int(proto)),
+					logger.Int("innerLen", len(packet)),
+					logger.Int("espLen", len(espPacket)))
 			}
 		}
 	}()
@@ -140,6 +147,11 @@ func (s *Session) startNetstackDataPlaneLoop() {
 			if len(espData) >= 4 {
 				spi = binary.BigEndian.Uint32(espData[0:4])
 			}
+
+			s.Logger.Debug(s.pfx("netstack ESP 入站收到"),
+				logger.Uint64("espRecvCount", espRecvCount),
+				logger.Uint32("spi", spi),
+				logger.Int("len", len(espData)))
 
 			sa := s.ChildSAIn
 			if len(espData) >= 4 && s.ChildSAsIn != nil {
@@ -166,6 +178,10 @@ func (s *Session) startNetstackDataPlaneLoop() {
 				return
 			case s.innerRx <- cp:
 				rxCount++
+				s.Logger.Debug(s.pfx("netstack ESP 入站已解密"),
+					logger.Uint64("rxCount", rxCount),
+					logger.Uint32("spi", spi),
+					logger.Int("plainLen", len(packet)))
 			default:
 				s.Logger.Warn(s.pfx("netstack 入站队列已满，丢弃数据包"), logger.Int("len", len(packet)))
 			}

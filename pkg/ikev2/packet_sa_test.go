@@ -41,4 +41,3 @@ func TestDecodePacketDecodesSA(t *testing.T) {
 		t.Fatalf("decoded SA missing transforms: proposals=%d transforms=%d", len(sa2.Proposals), len(sa2.Proposals[0].Transforms))
 	}
 }
-

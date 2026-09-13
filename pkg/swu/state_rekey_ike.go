@@ -201,7 +201,7 @@ func (s *Session) handleRekeyIKESAResp(
 	s.SPIr = newSPIr
 	s.Keys = newKeys
 	s.SequenceNumber.Store(0) // 新 IKE SA 的 MsgID 从 0 开始
-	s.DH = newDH         // 更新 DH 状态
+	s.DH = newDH              // 更新 DH 状态
 
 	s.Logger.Info(s.pfx("IKE SA Rekey 成功"),
 		logger.Uint64("oldSPIi", oldSPIi),

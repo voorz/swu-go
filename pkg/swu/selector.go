@@ -108,4 +108,3 @@ func extractDstTuple(packet []byte) (dstIP net.IP, proto uint8, dstPort uint16, 
 		return nil, 0, 0, false
 	}
 }
-

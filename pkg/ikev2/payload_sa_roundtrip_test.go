@@ -40,4 +40,3 @@ func TestPayloadSARoundTrip(t *testing.T) {
 		t.Fatalf("key length attr mismatch: type=%d val=%d", got.Attributes[0].Type, got.Attributes[0].Val)
 	}
 }
-

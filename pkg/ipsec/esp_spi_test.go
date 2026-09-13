@@ -76,4 +76,3 @@ func TestDecapsulateRejectsMismatchedSPI(t *testing.T) {
 		t.Fatalf("expected error for SPI mismatch")
 	}
 }
-

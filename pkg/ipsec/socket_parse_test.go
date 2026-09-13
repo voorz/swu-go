@@ -40,4 +40,3 @@ func TestParseIKEPayloadRejectsNonIKE(t *testing.T) {
 		t.Fatalf("expected non-IKE to be rejected")
 	}
 }
-

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/voorz/netlink"
 	"github.com/vishvananda/netns"
+	"github.com/voorz/netlink"
 )
 
 // NetNS 表示一个网络命名空间

@@ -162,8 +162,8 @@ func (x *XFRMManager) AddSA(cfg XFRMSAConfig) error {
 		Ifid:         cfg.Ifid,
 		// AFUnspec 字段在 voorz/netlink fork 中不存在，已移除
 		// (原 strongswan: tunnel mode SA 需要设置 XFRM_STATE_AF_UNSPEC)
-		ESN:      cfg.ESN,
-		SADir:    cfg.SADir,
+		ESN:   cfg.ESN,
+		SADir: cfg.SADir,
 		Limits: netlink.XfrmStateLimits{
 			TimeSoft: cfg.TimeLimitSoft,
 			TimeHard: cfg.TimeLimitHard,

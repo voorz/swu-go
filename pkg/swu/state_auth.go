@@ -80,7 +80,7 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 			)
 		}
 		cpPayload = &ikev2.EncryptedPayloadCP{
-			CFGType: ikev2.CFG_REQUEST,
+			CFGType:    ikev2.CFG_REQUEST,
 			Attributes: attrs,
 		}
 		s.Logger.Debug(s.pfx("第一包 IKE_AUTH 已携带 CP(CFG_REQUEST)（cp_in_first_auth=true，含 3GPP 扩展 P-CSCF 属性）"))
@@ -165,8 +165,8 @@ func (s *Session) buildIKEAuthInitPayloads() ([]ikev2.Payload, error) {
 	if s.cfg.TicketRequestEnabled != nil && *s.cfg.TicketRequestEnabled {
 		s.Logger.Debug(s.pfx("正在组装第一包 IKE_AUTH，已插入 TICKET_REQUEST 凭证索求 Notify"))
 		ticketReqPayload = &ikev2.EncryptedPayloadNotify{
-			ProtocolID:   0,
-			NotifyType:   ikev2.TICKET_REQUEST,
+			ProtocolID: 0,
+			NotifyType: ikev2.TICKET_REQUEST,
 		}
 	}
 
@@ -373,26 +373,26 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			return nil, err
 		}
 
-	// 保存 RAND/AUTN 供 IMS 预计算 AKA 复用
-	s.eapRand = append([]byte(nil), randVal...)
-	s.eapAutn = append([]byte(nil), autnVal...)
+		// 保存 RAND/AUTN 供 IMS 预计算 AKA 复用
+		s.eapRand = append([]byte(nil), randVal...)
+		s.eapAutn = append([]byte(nil), autnVal...)
 
-	// 运行 SIM 算法
-	res, ck, ik, auts, err := s.cfg.SIM.CalculateAKA(randVal, autnVal)
-	if err != nil {
-		if errors.Is(err, sim.ErrSyncFailure) {
-			// 发送同步失败
-			// 载荷: EAP-Response/AKA-Sync-Failure
-			// 属性: AT_AUTS
-			return s.buildEAPSyncFailure(pkt.Identifier, auts)
+		// 运行 SIM 算法
+		res, ck, ik, auts, err := s.cfg.SIM.CalculateAKA(randVal, autnVal)
+		if err != nil {
+			if errors.Is(err, sim.ErrSyncFailure) {
+				// 发送同步失败
+				// 载荷: EAP-Response/AKA-Sync-Failure
+				// 属性: AT_AUTS
+				return s.buildEAPSyncFailure(pkt.Identifier, auts)
+			}
+			return nil, fmt.Errorf("SIM AKA failed: %v", err)
 		}
-		return nil, fmt.Errorf("SIM AKA failed: %v", err)
-	}
 
-	// 保存 RES/CK/IK 供 IMS eap_direct 模式复用
-	s.eapRES = append([]byte(nil), res...)
-	s.eapCK = append([]byte(nil), ck...)
-	s.eapIK = append([]byte(nil), ik...)
+		// 保存 RES/CK/IK 供 IMS eap_direct 模式复用
+		s.eapRES = append([]byte(nil), res...)
+		s.eapCK = append([]byte(nil), ck...)
+		s.eapIK = append([]byte(nil), ik...)
 
 		imsi, _ := s.cfg.SIM.GetIMSI()
 		if imsi == "" && s.cfg.IMSI != "" {
@@ -616,12 +616,12 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			return nil, err
 		}
 
-	// 保存 RAND/AUTN 供 IMS 预计算 AKA 复用
-	s.eapRand = append([]byte(nil), randVal...)
-	s.eapAutn = append([]byte(nil), autnVal...)
+		// 保存 RAND/AUTN 供 IMS 预计算 AKA 复用
+		s.eapRand = append([]byte(nil), randVal...)
+		s.eapAutn = append([]byte(nil), autnVal...)
 
-	// 运行 SIM 算法 (底层 AT+CSIM 与 4G 完全一样)
-	res, ck, ik, auts, err := s.cfg.SIM.CalculateAKA(randVal, autnVal)
+		// 运行 SIM 算法 (底层 AT+CSIM 与 4G 完全一样)
+		res, ck, ik, auts, err := s.cfg.SIM.CalculateAKA(randVal, autnVal)
 		if err != nil {
 			if errors.Is(err, sim.ErrSyncFailure) {
 				return s.buildEAPSyncFailure(pkt.Identifier, auts)
@@ -629,10 +629,10 @@ func (s *Session) handleEAP(eapRaw []byte) ([]ikev2.Payload, error) {
 			return nil, fmt.Errorf("SIM AKA failed: %v", err)
 		}
 
-	// 保存 RES/CK/IK 供 IMS eap_direct 模式复用
-	s.eapRES = append([]byte(nil), res...)
-	s.eapCK = append([]byte(nil), ck...)
-	s.eapIK = append([]byte(nil), ik...)
+		// 保存 RES/CK/IK 供 IMS eap_direct 模式复用
+		s.eapRES = append([]byte(nil), res...)
+		s.eapCK = append([]byte(nil), ck...)
+		s.eapIK = append([]byte(nil), ik...)
 
 		// RFC 5448 §3.3: CK' 和 IK' 的派生
 		// CK' || IK' = KDF(CK||IK, network_name, SQN⊕AK)
@@ -1215,7 +1215,7 @@ func (s *Session) buildIKEAuthFinalPayloads() ([]ikev2.Payload, error) {
 			)
 		}
 		cpPayload := &ikev2.EncryptedPayloadCP{
-			CFGType: ikev2.CFG_REQUEST,
+			CFGType:    ikev2.CFG_REQUEST,
 			Attributes: attrs,
 		}
 		// CP 放在 AUTH 之前

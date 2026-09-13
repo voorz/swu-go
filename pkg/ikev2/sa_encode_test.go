@@ -16,8 +16,8 @@ func TestSAPayloadSize(t *testing.T) {
 	}
 	t.Logf("SA body len: %d", len(body))
 	t.Logf("SA body hex: %s", hex.EncodeToString(body))
-	
-// 默认 5 个 Proposal，字节数由实际编码决定
+
+	// 默认 5 个 Proposal，字节数由实际编码决定
 	t.Logf("Proposal count: %d", len(proposals))
 	if len(proposals) != 5 {
 		t.Errorf("Expected 5 default proposals, got %d", len(proposals))
